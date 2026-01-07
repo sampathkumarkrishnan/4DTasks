@@ -5,7 +5,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
-import { DndContext, DragOverlay, pointerWithin, rectIntersection } from '@dnd-kit/core';
+import { DndContext, DragOverlay, pointerWithin, rectIntersection, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import { useAuth } from '../../context/AuthContext';
 import { useTasks } from '../../context/TaskContext';
@@ -58,6 +58,21 @@ function Layout() {
   
   const [anchorEl, setAnchorEl] = useState(null);
   const [activeTask, setActiveTask] = useState(null);
+
+  // Configure sensors with activation constraint - requires 5px movement before drag starts
+  // This allows clicks to work without triggering drag
+  const mouseSensor = useSensor(MouseSensor, {
+    activationConstraint: {
+      distance: 5,
+    },
+  });
+  const touchSensor = useSensor(TouchSensor, {
+    activationConstraint: {
+      delay: 150,
+      tolerance: 5,
+    },
+  });
+  const sensors = useSensors(mouseSensor, touchSensor);
   const [taskDialog, setTaskDialog] = useState({ open: false, quadrant: null, task: null });
   const [moveDialog, setMoveDialog] = useState({ open: false, task: null, targetQuadrant: null });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -191,7 +206,19 @@ function Layout() {
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: 'background.default' }}>
+    <Box sx={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      height: '100vh', 
+      bgcolor: 'background.default',
+      // Global grabbing cursor during drag
+      ...(activeTask && {
+        cursor: 'grabbing',
+        '& *': {
+          cursor: 'grabbing !important',
+        },
+      }),
+    }}>
       {/* App Bar */}
       <AppBar
         position="static"
@@ -264,6 +291,7 @@ function Layout() {
 
       {/* Main Content - Resizable 2x2 Grid */}
       <DndContext
+        sensors={sensors}
         collisionDetection={collisionDetection}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}

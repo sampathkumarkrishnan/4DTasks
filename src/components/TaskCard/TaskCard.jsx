@@ -85,6 +85,12 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
     onEdit?.();
   };
 
+  const handleCardClick = (event) => {
+    // Only trigger if it's a simple click (not a drag)
+    // The drag library handles preventing click during drag
+    onEdit?.();
+  };
+
   if (isDragging || isSortableDragging) {
     return (
       <Box
@@ -96,6 +102,7 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
           borderColor: 'divider',
           opacity: 0.8,
           boxShadow: 4,
+          cursor: 'grabbing',
         }}
       >
         <Typography variant="body2" sx={{ fontWeight: 500 }}>
@@ -111,13 +118,14 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
       style={style}
       {...attributes}
       {...listeners}
+      onClick={handleCardClick}
       sx={{
         p: 1.5,
         borderRadius: 1.5,
         bgcolor: 'background.paper',
         border: '1px solid',
         borderColor: 'divider',
-        cursor: 'grab',
+        cursor: 'pointer',
         transition: 'all 0.15s ease',
         opacity: isCompleted ? 0.6 : 1,
         '&:hover': {
@@ -126,9 +134,6 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
           '& .task-actions': {
             opacity: 1,
           },
-        },
-        '&:active': {
-          cursor: 'grabbing',
         },
       }}
     >
