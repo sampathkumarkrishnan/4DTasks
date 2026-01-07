@@ -173,10 +173,10 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
             }}
           >
             {dueDate && (
-              <Tooltip title={dueDate.format('MMMM D, YYYY h:mm A')}>
+              <Tooltip title={dueDate.format('MMMM D, YYYY')}>
                 <Chip
                   icon={<AccessTimeIcon sx={{ fontSize: 14 }} />}
-                  label={dueDate.fromNow()}
+                  label={dueDate.format('MMM D')}
                   size="small"
                   sx={{
                     height: 22,
