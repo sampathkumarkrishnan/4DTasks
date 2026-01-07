@@ -141,6 +141,7 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
         <Checkbox
           checked={isCompleted}
           onChange={handleToggleComplete}
+          onClick={stopDragPropagation}
           onPointerDown={stopDragPropagation}
           onMouseDown={stopDragPropagation}
           onTouchStart={stopDragPropagation}
