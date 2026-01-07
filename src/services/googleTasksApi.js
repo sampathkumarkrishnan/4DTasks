@@ -1,5 +1,14 @@
 const TASKS_API_BASE = 'https://tasks.googleapis.com/tasks/v1';
 
+// Custom error class for authentication errors
+export class AuthenticationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'AuthenticationError';
+    this.status = 401;
+  }
+}
+
 // Helper to make authenticated requests
 async function apiRequest(endpoint, accessToken, options = {}) {
   const response = await fetch(`${TASKS_API_BASE}${endpoint}`, {
@@ -13,6 +22,12 @@ async function apiRequest(endpoint, accessToken, options = {}) {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
+    
+    // Throw specific error for 401 Unauthorized
+    if (response.status === 401) {
+      throw new AuthenticationError(error.error?.message || 'Authentication failed');
+    }
+    
     throw new Error(error.error?.message || `API request failed: ${response.status}`);
   }
 

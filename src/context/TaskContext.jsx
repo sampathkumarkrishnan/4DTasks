@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
-import { taskListsApi, tasksApi, taskMetadata, titlePrefix } from '../services/googleTasksApi';
+import { taskListsApi, tasksApi, taskMetadata, titlePrefix, AuthenticationError } from '../services/googleTasksApi';
 
 const TaskContext = createContext(null);
 
@@ -84,8 +84,11 @@ function taskReducer(state, action) {
 }
 
 export function TaskProvider({ children }) {
-  const { accessToken, isAuthenticated } = useAuth();
+  const { accessToken, isAuthenticated, refreshToken } = useAuth();
   const [state, dispatch] = useReducer(taskReducer, initialState);
+  
+  // Track if we're currently attempting a token refresh to avoid loops
+  const isRefreshingRef = useRef(false);
 
   // Fetch all task lists (categories)
   const fetchTaskLists = useCallback(async () => {
@@ -150,6 +153,10 @@ export function TaskProvider({ children }) {
             };
           });
         } catch (error) {
+          // Re-throw authentication errors to be handled at top level
+          if (error instanceof AuthenticationError) {
+            throw error;
+          }
           console.error(`Failed to fetch tasks from list ${list.title}:`, error);
           return [];
         }
@@ -160,9 +167,20 @@ export function TaskProvider({ children }) {
       
       dispatch({ type: ACTIONS.SET_TASKS, payload: allTasks });
     } catch (error) {
+      // Handle 401 authentication errors by triggering token refresh
+      if (error instanceof AuthenticationError && !isRefreshingRef.current) {
+        console.log('Authentication error detected, triggering token refresh');
+        isRefreshingRef.current = true;
+        refreshToken();
+        // The app will re-fetch tasks when the new token is available
+        setTimeout(() => {
+          isRefreshingRef.current = false;
+        }, 5000);
+        return;
+      }
       dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
     }
-  }, [accessToken, fetchTaskLists]);
+  }, [accessToken, fetchTaskLists, refreshToken]);
 
   // Load tasks when authenticated
   useEffect(() => {

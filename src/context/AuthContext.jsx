@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 
 const AuthContext = createContext(null);
 
@@ -10,12 +10,58 @@ const SCOPES = [
   'https://www.googleapis.com/auth/tasks.readonly',
 ].join(' ');
 
+// Refresh token 5 minutes before expiry
+const REFRESH_BUFFER_MS = 5 * 60 * 1000;
+// Timeout for silent refresh attempt
+const SILENT_REFRESH_TIMEOUT_MS = 3000;
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [accessToken, setAccessToken] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tokenClient, setTokenClient] = useState(null);
+  
+  // Refs to track timers and pending refresh
+  const refreshTimerRef = useRef(null);
+  const silentRefreshTimeoutRef = useRef(null);
+  const pendingSilentRefreshRef = useRef(false);
+
+  // Schedule proactive token refresh before expiry
+  const scheduleTokenRefresh = useCallback((expiresInMs) => {
+    // Clear any existing timer
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+    
+    // Schedule refresh 5 minutes before expiry
+    const refreshTime = expiresInMs - REFRESH_BUFFER_MS;
+    if (refreshTime > 0) {
+      refreshTimerRef.current = setTimeout(() => {
+        console.log('Proactively refreshing token before expiry');
+        if (tokenClient) {
+          tokenClient.requestAccessToken({ prompt: '' });
+        }
+      }, refreshTime);
+    }
+  }, [tokenClient]);
+
+  // Attempt silent token refresh (no user interaction)
+  const attemptSilentRefresh = useCallback((client) => {
+    pendingSilentRefreshRef.current = true;
+    
+    // Try to get a new token silently
+    client.requestAccessToken({ prompt: '' });
+    
+    // Set a timeout - if we don't get a response, show login screen
+    silentRefreshTimeoutRef.current = setTimeout(() => {
+      if (pendingSilentRefreshRef.current) {
+        console.log('Silent refresh timed out, showing login');
+        pendingSilentRefreshRef.current = false;
+        setIsLoading(false);
+      }
+    }, SILENT_REFRESH_TIMEOUT_MS);
+  }, []);
 
   // Initialize Google Identity Services
   useEffect(() => {
@@ -30,7 +76,7 @@ export function AuthProvider({ children }) {
         const client = window.google.accounts.oauth2.initTokenClient({
           client_id: GOOGLE_CLIENT_ID,
           scope: SCOPES,
-          callback: handleTokenResponse,
+          callback: (response) => handleTokenResponse(response, client),
         });
         setTokenClient(client);
         
@@ -39,14 +85,32 @@ export function AuthProvider({ children }) {
         const storedExpiry = localStorage.getItem('google_token_expiry');
         const storedUser = localStorage.getItem('google_user');
         
-        if (storedToken && storedExpiry && new Date(storedExpiry) > new Date()) {
-          setAccessToken(storedToken);
-          if (storedUser) {
-            setUser(JSON.parse(storedUser));
+        if (storedToken && storedExpiry) {
+          const expiryDate = new Date(storedExpiry);
+          const now = new Date();
+          
+          if (expiryDate > now) {
+            // Token still valid - use it
+            setAccessToken(storedToken);
+            if (storedUser) {
+              setUser(JSON.parse(storedUser));
+            }
+            // Schedule refresh before it expires
+            const remainingTime = expiryDate.getTime() - now.getTime();
+            scheduleTokenRefresh(remainingTime);
+            setIsLoading(false);
+          } else {
+            // Token expired - attempt silent refresh
+            console.log('Stored token expired, attempting silent refresh');
+            if (storedUser) {
+              setUser(JSON.parse(storedUser)); // Show user info while refreshing
+            }
+            attemptSilentRefresh(client);
+            return; // Don't set isLoading false yet
           }
+        } else {
+          setIsLoading(false);
         }
-        
-        setIsLoading(false);
       };
       script.onerror = () => {
         setError('Failed to load Google Identity Services');
@@ -56,25 +120,48 @@ export function AuthProvider({ children }) {
     };
 
     initializeGoogleAuth();
+    
+    // Cleanup timers on unmount
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+      if (silentRefreshTimeoutRef.current) {
+        clearTimeout(silentRefreshTimeoutRef.current);
+      }
+    };
   }, []);
 
-  const handleTokenResponse = useCallback((response) => {
+  const handleTokenResponse = useCallback((response, client) => {
+    // Clear silent refresh state
+    pendingSilentRefreshRef.current = false;
+    if (silentRefreshTimeoutRef.current) {
+      clearTimeout(silentRefreshTimeoutRef.current);
+    }
+    
     if (response.error) {
+      console.error('Token response error:', response.error);
       setError(response.error);
+      setIsLoading(false);
       return;
     }
 
     const token = response.access_token;
     setAccessToken(token);
+    setIsLoading(false);
     
     // Store token with expiry
-    const expiryDate = new Date(Date.now() + response.expires_in * 1000);
+    const expiresInMs = response.expires_in * 1000;
+    const expiryDate = new Date(Date.now() + expiresInMs);
     localStorage.setItem('google_access_token', token);
     localStorage.setItem('google_token_expiry', expiryDate.toISOString());
     
+    // Schedule proactive refresh before expiry
+    scheduleTokenRefresh(expiresInMs);
+    
     // Fetch user info
     fetchUserInfo(token);
-  }, []);
+  }, [scheduleTokenRefresh]);
 
   const fetchUserInfo = async (token) => {
     try {
