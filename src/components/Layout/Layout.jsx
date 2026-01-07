@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, AppBar, Toolbar, Typography, IconButton, Avatar, Menu, MenuItem, alpha, Snackbar, Alert, Tooltip, useTheme } from '@mui/material';
+import { Box, AppBar, Toolbar, Typography, IconButton, Avatar, Menu, MenuItem, alpha, Snackbar, Alert, Tooltip, useTheme, useMediaQuery } from '@mui/material';
 import GridViewIcon from '@mui/icons-material/GridView';
 import LogoutIcon from '@mui/icons-material/Logout';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -55,6 +55,9 @@ function Layout() {
   const { mode, toggleTheme, isDark } = useThemeMode();
   const { user, logout } = useAuth();
   const { tasks, moveTask, fetchTasks, error, isLoading } = useTasks();
+  
+  // Detect mobile screens (less than 768px)
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   
   const [anchorEl, setAnchorEl] = useState(null);
   const [activeTask, setActiveTask] = useState(null);
@@ -289,7 +292,7 @@ function Layout() {
         </Toolbar>
       </AppBar>
 
-      {/* Main Content - Resizable 2x2 Grid */}
+      {/* Main Content */}
       <DndContext
         sensors={sensors}
         collisionDetection={collisionDetection}
@@ -297,53 +300,88 @@ function Layout() {
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <Box sx={{ flex: 1, overflow: 'hidden' }}>
-          <PanelGroup orientation="vertical" style={{ height: '100%' }}>
-            {/* Top Row */}
-            <Panel defaultSize="50%" minSize="20%">
-              <PanelGroup orientation="horizontal" style={{ height: '100%' }}>
-                <Panel defaultSize="50%" minSize="20%">
-                  <Quadrant
-                    config={quadrantConfig.do}
-                    onAddTask={() => handleOpenTaskDialog('do')}
-                    onEditTask={(task) => handleOpenTaskDialog('do', task)}
-                  />
-                </Panel>
-                <ResizeHandle direction="horizontal" />
-                <Panel defaultSize="50%" minSize="20%">
-                  <Quadrant
-                    config={quadrantConfig.delegate}
-                    onAddTask={() => handleOpenTaskDialog('delegate')}
-                    onEditTask={(task) => handleOpenTaskDialog('delegate', task)}
-                  />
-                </Panel>
-              </PanelGroup>
-            </Panel>
+        {isMobile ? (
+          /* Mobile Layout - Vertical Stack */
+          <Box sx={{ flex: 1, overflow: 'auto' }}>
+            <Box sx={{ minHeight: '40vh' }}>
+              <Quadrant
+                config={quadrantConfig.do}
+                onAddTask={() => handleOpenTaskDialog('do')}
+                onEditTask={(task) => handleOpenTaskDialog('do', task)}
+              />
+            </Box>
+            <Box sx={{ minHeight: '40vh' }}>
+              <Quadrant
+                config={quadrantConfig.delegate}
+                onAddTask={() => handleOpenTaskDialog('delegate')}
+                onEditTask={(task) => handleOpenTaskDialog('delegate', task)}
+              />
+            </Box>
+            <Box sx={{ minHeight: '40vh' }}>
+              <Quadrant
+                config={quadrantConfig.delay}
+                onAddTask={() => handleOpenTaskDialog('delay')}
+                onEditTask={(task) => handleOpenTaskDialog('delay', task)}
+              />
+            </Box>
+            <Box sx={{ minHeight: '40vh' }}>
+              <Quadrant
+                config={quadrantConfig.delete}
+                onAddTask={() => handleOpenTaskDialog('delete')}
+                onEditTask={(task) => handleOpenTaskDialog('delete', task)}
+              />
+            </Box>
+          </Box>
+        ) : (
+          /* Desktop Layout - Resizable 2x2 Grid */
+          <Box sx={{ flex: 1, overflow: 'hidden' }}>
+            <PanelGroup orientation="vertical" style={{ height: '100%' }}>
+              {/* Top Row */}
+              <Panel defaultSize="50%" minSize="20%">
+                <PanelGroup orientation="horizontal" style={{ height: '100%' }}>
+                  <Panel defaultSize="50%" minSize="20%">
+                    <Quadrant
+                      config={quadrantConfig.do}
+                      onAddTask={() => handleOpenTaskDialog('do')}
+                      onEditTask={(task) => handleOpenTaskDialog('do', task)}
+                    />
+                  </Panel>
+                  <ResizeHandle direction="horizontal" />
+                  <Panel defaultSize="50%" minSize="20%">
+                    <Quadrant
+                      config={quadrantConfig.delegate}
+                      onAddTask={() => handleOpenTaskDialog('delegate')}
+                      onEditTask={(task) => handleOpenTaskDialog('delegate', task)}
+                    />
+                  </Panel>
+                </PanelGroup>
+              </Panel>
 
-            <ResizeHandle direction="vertical" />
+              <ResizeHandle direction="vertical" />
 
-            {/* Bottom Row */}
-            <Panel defaultSize="50%" minSize="20%">
-              <PanelGroup orientation="horizontal" style={{ height: '100%' }}>
-                <Panel defaultSize="50%" minSize="20%">
-                  <Quadrant
-                    config={quadrantConfig.delay}
-                    onAddTask={() => handleOpenTaskDialog('delay')}
-                    onEditTask={(task) => handleOpenTaskDialog('delay', task)}
-                  />
-                </Panel>
-                <ResizeHandle direction="horizontal" />
-                <Panel defaultSize="50%" minSize="20%">
-                  <Quadrant
-                    config={quadrantConfig.delete}
-                    onAddTask={() => handleOpenTaskDialog('delete')}
-                    onEditTask={(task) => handleOpenTaskDialog('delete', task)}
-                  />
-                </Panel>
-              </PanelGroup>
-            </Panel>
-          </PanelGroup>
-        </Box>
+              {/* Bottom Row */}
+              <Panel defaultSize="50%" minSize="20%">
+                <PanelGroup orientation="horizontal" style={{ height: '100%' }}>
+                  <Panel defaultSize="50%" minSize="20%">
+                    <Quadrant
+                      config={quadrantConfig.delay}
+                      onAddTask={() => handleOpenTaskDialog('delay')}
+                      onEditTask={(task) => handleOpenTaskDialog('delay', task)}
+                    />
+                  </Panel>
+                  <ResizeHandle direction="horizontal" />
+                  <Panel defaultSize="50%" minSize="20%">
+                    <Quadrant
+                      config={quadrantConfig.delete}
+                      onAddTask={() => handleOpenTaskDialog('delete')}
+                      onEditTask={(task) => handleOpenTaskDialog('delete', task)}
+                    />
+                  </Panel>
+                </PanelGroup>
+              </Panel>
+            </PanelGroup>
+          </Box>
+        )}
 
         <DragOverlay>
           {activeTask ? (
