@@ -18,7 +18,7 @@ import {
   createFilterOptions,
   CircularProgress,
 } from '@mui/material';
-import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import dayjs from 'dayjs';
 import { useTasks } from '../../context/TaskContext';
 import { useThemeMode } from '../../context/ThemeContext';
@@ -238,8 +238,8 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
           </FormControl>
 
           {showDatePicker && (
-            <DateTimePicker
-              label={formData.quadrant === 'do' ? 'Due date & time' : 'Schedule for'}
+            <DatePicker
+              label={formData.quadrant === 'do' ? 'Due date' : 'Schedule for'}
               value={formData.due}
               onChange={handleDateChange}
               slotProps={{

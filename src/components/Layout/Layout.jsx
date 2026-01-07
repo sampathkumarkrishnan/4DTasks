@@ -93,7 +93,21 @@ function Layout() {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
 
-    const targetQuadrant = over.id;
+    // Check if over.id is a quadrant or a task
+    const validQuadrants = ['do', 'delegate', 'delay', 'delete'];
+    let targetQuadrant = over.id;
+    
+    // If dropped on a task card, find that task's quadrant
+    if (!validQuadrants.includes(over.id)) {
+      const targetTask = tasks.find((t) => t.id === over.id);
+      if (targetTask) {
+        targetQuadrant = targetTask.metadata?.quadrant || 'do';
+      } else {
+        // Unknown drop target, ignore
+        return;
+      }
+    }
+
     const currentQuadrant = task.metadata?.quadrant || 'do';
 
     if (currentQuadrant === targetQuadrant) return;
