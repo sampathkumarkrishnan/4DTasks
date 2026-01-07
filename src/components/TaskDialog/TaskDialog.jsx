@@ -190,8 +190,8 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
         )}
       </DialogTitle>
 
-      <DialogContent sx={{ pt: 2 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+      <DialogContent sx={{ pt: 1, overflow: 'visible' }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, mt: 1 }}>
           <TextField
             autoFocus
             label="Task title"
@@ -200,6 +200,7 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
             fullWidth
             required
             placeholder="What needs to be done?"
+            sx={{ mt: 1 }}
           />
 
           <TextField
