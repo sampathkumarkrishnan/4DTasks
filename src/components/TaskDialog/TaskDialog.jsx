@@ -124,7 +124,7 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
         title: formData.title.trim(),
         notes: formData.notes.trim(),
         quadrant: formData.quadrant,
-        due: formData.due ? formData.due.toISOString() : null,
+        due: formData.due ? formData.due.format('YYYY-MM-DD') + 'T12:00:00.000Z' : null,
         delegatedTo: formData.quadrant === 'delegate' ? formData.delegatedTo : null,
         categoryListId: formData.categoryListId,
       };
@@ -160,7 +160,7 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
     }
   };
 
-  const showDatePicker = formData.quadrant === 'do' || formData.quadrant === 'delay';
+  const showDatePicker = formData.quadrant === 'do' || formData.quadrant === 'delay' || formData.quadrant === 'delegate';
   const showDelegateField = formData.quadrant === 'delegate';
 
   return (
