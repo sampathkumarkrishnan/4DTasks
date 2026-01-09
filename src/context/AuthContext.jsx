@@ -10,9 +10,7 @@ const SCOPES = [
   'https://www.googleapis.com/auth/tasks.readonly',
 ].join(' ');
 
-// Refresh token 5 minutes before expiry
-const REFRESH_BUFFER_MS = 5 * 60 * 1000;
-// Timeout for silent refresh attempt
+// Timeout for silent refresh attempt on initial load
 const SILENT_REFRESH_TIMEOUT_MS = 3000;
 
 export function AuthProvider({ children }) {
@@ -21,31 +19,12 @@ export function AuthProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tokenClient, setTokenClient] = useState(null);
+  const [needsReauth, setNeedsReauth] = useState(false);
   
   // Refs to track timers and pending refresh
-  const refreshTimerRef = useRef(null);
   const silentRefreshTimeoutRef = useRef(null);
   const pendingSilentRefreshRef = useRef(false);
   const tokenClientRef = useRef(null);
-
-  // Schedule proactive token refresh before expiry
-  const scheduleTokenRefresh = useCallback((expiresInMs) => {
-    // Clear any existing timer
-    if (refreshTimerRef.current) {
-      clearTimeout(refreshTimerRef.current);
-    }
-    
-    // Schedule refresh 5 minutes before expiry
-    const refreshTime = expiresInMs - REFRESH_BUFFER_MS;
-    if (refreshTime > 0) {
-      refreshTimerRef.current = setTimeout(() => {
-        console.log('Proactively refreshing token before expiry');
-        if (tokenClientRef.current) {
-          tokenClientRef.current.requestAccessToken({ prompt: '' });
-        }
-      }, refreshTime);
-    }
-  }, []);
 
   // Attempt silent token refresh (no user interaction)
   const attemptSilentRefresh = useCallback((client) => {
@@ -97,9 +76,6 @@ export function AuthProvider({ children }) {
             if (storedUser) {
               setUser(JSON.parse(storedUser));
             }
-            // Schedule refresh before it expires
-            const remainingTime = expiryDate.getTime() - now.getTime();
-            scheduleTokenRefresh(remainingTime);
             setIsLoading(false);
           } else {
             // Token expired - attempt silent refresh
@@ -125,9 +101,6 @@ export function AuthProvider({ children }) {
     
     // Cleanup timers on unmount
     return () => {
-      if (refreshTimerRef.current) {
-        clearTimeout(refreshTimerRef.current);
-      }
       if (silentRefreshTimeoutRef.current) {
         clearTimeout(silentRefreshTimeoutRef.current);
       }
@@ -151,6 +124,7 @@ export function AuthProvider({ children }) {
     const token = response.access_token;
     setAccessToken(token);
     setIsLoading(false);
+    setNeedsReauth(false); // Clear re-auth flag on successful login
     
     // Store token with expiry
     const expiresInMs = response.expires_in * 1000;
@@ -158,12 +132,9 @@ export function AuthProvider({ children }) {
     localStorage.setItem('google_access_token', token);
     localStorage.setItem('google_token_expiry', expiryDate.toISOString());
     
-    // Schedule proactive refresh before expiry
-    scheduleTokenRefresh(expiresInMs);
-    
     // Fetch user info
     fetchUserInfo(token);
-  }, [scheduleTokenRefresh]);
+  }, []);
 
   const fetchUserInfo = async (token) => {
     try {
@@ -203,6 +174,11 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('google_user');
   }, [accessToken]);
 
+  // Mark that re-authentication is needed (called when 401 errors occur)
+  const markNeedsReauth = useCallback(() => {
+    setNeedsReauth(true);
+  }, []);
+
   const refreshToken = useCallback(() => {
     if (tokenClientRef.current) {
       tokenClientRef.current.requestAccessToken({ prompt: '' });
@@ -215,9 +191,11 @@ export function AuthProvider({ children }) {
     isAuthenticated: !!accessToken,
     isLoading,
     error,
+    needsReauth,
     login,
     logout,
     refreshToken,
+    markNeedsReauth,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

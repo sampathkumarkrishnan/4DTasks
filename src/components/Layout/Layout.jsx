@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, AppBar, Toolbar, Typography, IconButton, Avatar, Menu, MenuItem, alpha, Snackbar, Alert, Tooltip, useTheme, useMediaQuery } from '@mui/material';
+import { Box, AppBar, Toolbar, Typography, IconButton, Avatar, Menu, MenuItem, alpha, Snackbar, Alert, Tooltip, useTheme, useMediaQuery, Button } from '@mui/material';
 import GridViewIcon from '@mui/icons-material/GridView';
 import LogoutIcon from '@mui/icons-material/Logout';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -53,7 +53,7 @@ function ResizeHandle({ direction = 'horizontal' }) {
 function Layout() {
   const theme = useTheme();
   const { mode, toggleTheme, isDark } = useThemeMode();
-  const { user, logout } = useAuth();
+  const { user, logout, needsReauth, login } = useAuth();
   const { tasks, moveTask, fetchTasks, error, isLoading } = useTasks();
   
   // Detect mobile screens (less than 768px)
@@ -291,6 +291,24 @@ function Layout() {
           </Menu>
         </Toolbar>
       </AppBar>
+
+      {/* Re-auth Banner */}
+      {needsReauth && (
+        <Alert 
+          severity="warning" 
+          sx={{ 
+            borderRadius: 0,
+            '& .MuiAlert-action': { alignItems: 'center' }
+          }}
+          action={
+            <Button color="inherit" size="small" onClick={login} sx={{ fontWeight: 600 }}>
+              Sign in
+            </Button>
+          }
+        >
+          Your session has expired. Click to sign in again.
+        </Alert>
+      )}
 
       {/* Main Content */}
       <DndContext
