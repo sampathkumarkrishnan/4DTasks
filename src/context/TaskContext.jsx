@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { taskListsApi, tasksApi, taskMetadata, titlePrefix, AuthenticationError } from '../services/googleTasksApi';
 
@@ -84,11 +84,8 @@ function taskReducer(state, action) {
 }
 
 export function TaskProvider({ children }) {
-  const { accessToken, isAuthenticated, refreshToken } = useAuth();
+  const { accessToken, isAuthenticated, markNeedsReauth } = useAuth();
   const [state, dispatch] = useReducer(taskReducer, initialState);
-  
-  // Track if we're currently attempting a token refresh to avoid loops
-  const isRefreshingRef = useRef(false);
 
   // Fetch all task lists (categories)
   const fetchTaskLists = useCallback(async () => {
@@ -167,20 +164,15 @@ export function TaskProvider({ children }) {
       
       dispatch({ type: ACTIONS.SET_TASKS, payload: allTasks });
     } catch (error) {
-      // Handle 401 authentication errors by triggering token refresh
-      if (error instanceof AuthenticationError && !isRefreshingRef.current) {
-        console.log('Authentication error detected, triggering token refresh');
-        isRefreshingRef.current = true;
-        refreshToken();
-        // The app will re-fetch tasks when the new token is available
-        setTimeout(() => {
-          isRefreshingRef.current = false;
-        }, 5000);
+      // Handle 401 authentication errors by marking re-auth needed
+      if (error instanceof AuthenticationError) {
+        console.log('Authentication error detected, marking re-auth needed');
+        markNeedsReauth();
         return;
       }
       dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
     }
-  }, [accessToken, fetchTaskLists, refreshToken]);
+  }, [accessToken, fetchTaskLists, markNeedsReauth]);
 
   // Load tasks when authenticated
   useEffect(() => {
