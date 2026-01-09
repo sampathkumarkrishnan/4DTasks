@@ -10,7 +10,7 @@ import {
   Typography,
   alpha,
 } from '@mui/material';
-import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import dayjs from 'dayjs';
 import { useThemeMode } from '../../context/ThemeContext';
 import { getQuadrantConfig } from '../../theme/theme';
@@ -38,8 +38,8 @@ function MoveDialog({ open, onClose, task, targetQuadrant, onConfirm }) {
     try {
       const additionalData = {};
 
-      if (targetQuadrant === 'do' || targetQuadrant === 'delay') {
-        additionalData.due = due ? due.toISOString() : null;
+      if (targetQuadrant === 'do' || targetQuadrant === 'delay' || targetQuadrant === 'delegate') {
+        additionalData.due = due ? due.format('YYYY-MM-DD') + 'T12:00:00.000Z' : null;
       }
 
       if (targetQuadrant === 'delegate') {
@@ -55,7 +55,7 @@ function MoveDialog({ open, onClose, task, targetQuadrant, onConfirm }) {
   if (!targetQuadrant) return null;
 
   const config = quadrantConfig[targetQuadrant];
-  const showDatePicker = targetQuadrant === 'do' || targetQuadrant === 'delay';
+  const showDatePicker = targetQuadrant === 'do' || targetQuadrant === 'delay' || targetQuadrant === 'delegate';
   const showDelegateField = targetQuadrant === 'delegate';
 
   return (
@@ -95,8 +95,8 @@ function MoveDialog({ open, onClose, task, targetQuadrant, onConfirm }) {
           </Box>
 
           {showDatePicker && (
-            <DateTimePicker
-              label={targetQuadrant === 'do' ? 'Due date & time' : 'Schedule for'}
+            <DatePicker
+              label={targetQuadrant === 'do' ? 'Due date' : 'Schedule for'}
               value={due}
               onChange={setDue}
               slotProps={{

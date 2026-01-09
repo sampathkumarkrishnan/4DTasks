@@ -26,6 +26,7 @@ export function AuthProvider({ children }) {
   const refreshTimerRef = useRef(null);
   const silentRefreshTimeoutRef = useRef(null);
   const pendingSilentRefreshRef = useRef(false);
+  const tokenClientRef = useRef(null);
 
   // Schedule proactive token refresh before expiry
   const scheduleTokenRefresh = useCallback((expiresInMs) => {
@@ -39,12 +40,12 @@ export function AuthProvider({ children }) {
     if (refreshTime > 0) {
       refreshTimerRef.current = setTimeout(() => {
         console.log('Proactively refreshing token before expiry');
-        if (tokenClient) {
-          tokenClient.requestAccessToken({ prompt: '' });
+        if (tokenClientRef.current) {
+          tokenClientRef.current.requestAccessToken({ prompt: '' });
         }
       }, refreshTime);
     }
-  }, [tokenClient]);
+  }, []);
 
   // Attempt silent token refresh (no user interaction)
   const attemptSilentRefresh = useCallback((client) => {
@@ -78,6 +79,7 @@ export function AuthProvider({ children }) {
           scope: SCOPES,
           callback: (response) => handleTokenResponse(response, client),
         });
+        tokenClientRef.current = client;
         setTokenClient(client);
         
         // Check if we have a stored token
@@ -202,10 +204,10 @@ export function AuthProvider({ children }) {
   }, [accessToken]);
 
   const refreshToken = useCallback(() => {
-    if (tokenClient) {
-      tokenClient.requestAccessToken({ prompt: '' });
+    if (tokenClientRef.current) {
+      tokenClientRef.current.requestAccessToken({ prompt: '' });
     }
-  }, [tokenClient]);
+  }, []);
 
   const value = {
     user,
