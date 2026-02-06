@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
-import { taskListsApi, tasksApi, taskMetadata, titlePrefix, AuthenticationError } from '../services/googleTasksApi';
+import { taskListsApi, tasksApi, taskMetadata, titlePrefix, AuthenticationError, createAuthRetryWrapper } from '../services/googleTasksApi';
 
 const TaskContext = createContext(null);
 
@@ -84,15 +84,24 @@ function taskReducer(state, action) {
 }
 
 export function TaskProvider({ children }) {
-  const { accessToken, isAuthenticated, markNeedsReauth } = useAuth();
+  const { accessToken, isAuthenticated, markNeedsReauth, refreshTokenAsync } = useAuth();
   const [state, dispatch] = useReducer(taskReducer, initialState);
+
+  // Create the auth retry wrapper - memoized to prevent recreation on every render
+  const withAuthRetry = useMemo(() => {
+    if (!refreshTokenAsync || !accessToken) {
+      // Return a passthrough function if not ready
+      return (apiCallFactory) => apiCallFactory(accessToken);
+    }
+    return createAuthRetryWrapper(refreshTokenAsync, () => accessToken);
+  }, [refreshTokenAsync, accessToken]);
 
   // Fetch all task lists (categories)
   const fetchTaskLists = useCallback(async () => {
     if (!accessToken) return [];
     
     try {
-      const lists = await taskListsApi.getAll(accessToken);
+      const lists = await withAuthRetry((token) => taskListsApi.getAll(token));
       dispatch({ type: ACTIONS.SET_TASK_LISTS, payload: lists });
       
       // Set the first list as primary (for uncategorized tasks)
@@ -105,7 +114,7 @@ export function TaskProvider({ children }) {
       console.error('Failed to fetch task lists:', error);
       throw error;
     }
-  }, [accessToken]);
+  }, [accessToken, withAuthRetry]);
 
   // Fetch all tasks from all lists
   const fetchTasks = useCallback(async () => {
@@ -125,7 +134,7 @@ export function TaskProvider({ children }) {
       // Fetch tasks from each list in parallel
       const tasksPromises = lists.map(async (list) => {
         try {
-          const tasks = await tasksApi.getAll(accessToken, list.id, true, true);
+          const tasks = await withAuthRetry((token) => tasksApi.getAll(token, list.id, true, true));
           // Enrich each task with list info and parsed metadata
           return tasks.map((task) => {
             // Parse title prefix (new format)
@@ -172,7 +181,7 @@ export function TaskProvider({ children }) {
       }
       dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
     }
-  }, [accessToken, fetchTaskLists, markNeedsReauth]);
+  }, [accessToken, fetchTaskLists, markNeedsReauth, withAuthRetry]);
 
   // Load tasks when authenticated
   useEffect(() => {
@@ -223,7 +232,7 @@ export function TaskProvider({ children }) {
     };
     
     try {
-      const newTask = await tasksApi.create(accessToken, targetListId, taskPayload);
+      const newTask = await withAuthRetry((token) => tasksApi.create(token, targetListId, taskPayload));
       
       const enrichedTask = {
         ...newTask,
@@ -240,7 +249,7 @@ export function TaskProvider({ children }) {
       dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
       throw error;
     }
-  }, [accessToken, getListIdForCategory, getListTitle]);
+  }, [accessToken, getListIdForCategory, getListTitle, withAuthRetry]);
 
   // Update a task (within the same list)
   const updateTask = useCallback(async (taskId, updates) => {
@@ -305,7 +314,7 @@ export function TaskProvider({ children }) {
         },
       });
       
-      await tasksApi.update(accessToken, task.listId, taskId, taskPayload);
+      await withAuthRetry((token) => tasksApi.update(token, task.listId, taskId, taskPayload));
     } catch (error) {
       console.error('Failed to update task:', error, { taskId, listId: task.listId, taskPayload });
       // Revert on error
@@ -313,7 +322,7 @@ export function TaskProvider({ children }) {
       dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
       throw error;
     }
-  }, [accessToken, state.tasks]);
+  }, [accessToken, state.tasks, withAuthRetry]);
 
   // Change task category (move to different list)
   const changeTaskCategory = useCallback(async (taskId, newListId) => {
@@ -333,13 +342,13 @@ export function TaskProvider({ children }) {
     
     try {
       // Create task in new list (keep the same prefixed title)
-      const newTask = await tasksApi.move(accessToken, task.listId, targetListId, {
+      const newTask = await withAuthRetry((token) => tasksApi.move(token, task.listId, targetListId, {
         id: task.id,
         title: taskTitle,
         notes: task.notes,
         due: task.due,
         status: task.status,
-      });
+      }));
       
       // Remove old task from state
       dispatch({ type: ACTIONS.REMOVE_TASK, payload: taskId });
@@ -363,7 +372,7 @@ export function TaskProvider({ children }) {
       dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
       throw error;
     }
-  }, [accessToken, state.tasks, state.primaryListId, getListTitle]);
+  }, [accessToken, state.tasks, state.primaryListId, getListTitle, withAuthRetry]);
 
   // Move task to different quadrant
   const moveTask = useCallback(async (taskId, targetQuadrant, additionalData = {}) => {
@@ -405,7 +414,7 @@ export function TaskProvider({ children }) {
       // Optimistic delete
       dispatch({ type: ACTIONS.REMOVE_TASK, payload: taskId });
       
-      await tasksApi.delete(accessToken, listId, taskId);
+      await withAuthRetry((token) => tasksApi.delete(token, listId, taskId));
     } catch (error) {
       console.error('Failed to delete task:', error, { taskId, listId });
       // Revert on error
@@ -413,7 +422,7 @@ export function TaskProvider({ children }) {
       dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
       throw error;
     }
-  }, [accessToken, state.tasks]);
+  }, [accessToken, state.tasks, withAuthRetry]);
 
   // Toggle task completion
   const toggleComplete = useCallback(async (taskId) => {
@@ -450,14 +459,14 @@ export function TaskProvider({ children }) {
     if (!accessToken) return;
     
     try {
-      const newList = await taskListsApi.create(accessToken, name);
+      const newList = await withAuthRetry((token) => taskListsApi.create(token, name));
       dispatch({ type: ACTIONS.ADD_TASK_LIST, payload: newList });
       return newList;
     } catch (error) {
       dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
       throw error;
     }
-  }, [accessToken]);
+  }, [accessToken, withAuthRetry]);
 
   const value = {
     ...state,

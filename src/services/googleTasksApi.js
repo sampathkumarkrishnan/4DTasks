@@ -234,10 +234,38 @@ export const taskMetadata = {
   },
 };
 
+// Factory to create an auth retry wrapper for API calls
+// This wrapper catches 401 errors, attempts silent token refresh, and retries the operation
+export function createAuthRetryWrapper(refreshTokenAsync, getToken) {
+  return async function withAuthRetry(apiCallFactory) {
+    try {
+      // First attempt with current token
+      return await apiCallFactory(getToken());
+    } catch (error) {
+      if (error instanceof AuthenticationError) {
+        // Token expired or invalid - attempt silent refresh
+        try {
+          const newToken = await refreshTokenAsync();
+          // Retry the operation with the new token
+          return await apiCallFactory(newToken);
+        } catch (refreshError) {
+          // Silent refresh failed - re-throw the original auth error
+          // This will trigger the manual re-auth flow
+          console.log('Silent token refresh failed:', refreshError.message);
+          throw error;
+        }
+      }
+      // Non-auth errors pass through unchanged
+      throw error;
+    }
+  };
+}
+
 export default {
   taskLists: taskListsApi,
   tasks: tasksApi,
   metadata: taskMetadata,
   titlePrefix,
+  createAuthRetryWrapper,
 };
 

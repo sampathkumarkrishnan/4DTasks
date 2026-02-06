@@ -25,6 +25,11 @@ export function AuthProvider({ children }) {
   const silentRefreshTimeoutRef = useRef(null);
   const pendingSilentRefreshRef = useRef(false);
   const tokenClientRef = useRef(null);
+  
+  // Ref for pending async refresh promise callbacks
+  const pendingRefreshCallbackRef = useRef(null);
+  // Ref to track if a refresh is currently in progress (for deduplication)
+  const isRefreshingRef = useRef(false);
 
   // Attempt silent token refresh (no user interaction)
   const attemptSilentRefresh = useCallback((client) => {
@@ -110,6 +115,7 @@ export function AuthProvider({ children }) {
   const handleTokenResponse = useCallback((response, client) => {
     // Clear silent refresh state
     pendingSilentRefreshRef.current = false;
+    isRefreshingRef.current = false;
     if (silentRefreshTimeoutRef.current) {
       clearTimeout(silentRefreshTimeoutRef.current);
     }
@@ -118,6 +124,14 @@ export function AuthProvider({ children }) {
       console.error('Token response error:', response.error);
       setError(response.error);
       setIsLoading(false);
+      
+      // Reject pending async refresh promise if exists
+      if (pendingRefreshCallbackRef.current) {
+        const { reject, timeoutId } = pendingRefreshCallbackRef.current;
+        clearTimeout(timeoutId);
+        pendingRefreshCallbackRef.current = null;
+        reject(new Error(response.error));
+      }
       return;
     }
 
@@ -131,6 +145,14 @@ export function AuthProvider({ children }) {
     const expiryDate = new Date(Date.now() + expiresInMs);
     localStorage.setItem('google_access_token', token);
     localStorage.setItem('google_token_expiry', expiryDate.toISOString());
+    
+    // Resolve pending async refresh promise if exists
+    if (pendingRefreshCallbackRef.current) {
+      const { resolve, timeoutId } = pendingRefreshCallbackRef.current;
+      clearTimeout(timeoutId);
+      pendingRefreshCallbackRef.current = null;
+      resolve(token);
+    }
     
     // Fetch user info
     fetchUserInfo(token);
@@ -185,6 +207,52 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // Promise-based token refresh for retry wrapper
+  // Returns a Promise that resolves to the new token or rejects on failure/timeout
+  const refreshTokenAsync = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      // If already refreshing, wait for the existing refresh to complete
+      if (isRefreshingRef.current && pendingRefreshCallbackRef.current) {
+        // Chain onto the existing refresh by replacing the callbacks
+        const existingCallback = pendingRefreshCallbackRef.current;
+        const originalResolve = existingCallback.resolve;
+        const originalReject = existingCallback.reject;
+        
+        existingCallback.resolve = (token) => {
+          originalResolve(token);
+          resolve(token);
+        };
+        existingCallback.reject = (error) => {
+          originalReject(error);
+          reject(error);
+        };
+        return;
+      }
+      
+      if (!tokenClientRef.current) {
+        reject(new Error('Token client not initialized'));
+        return;
+      }
+      
+      isRefreshingRef.current = true;
+      
+      // Set timeout for refresh attempt
+      const timeoutId = setTimeout(() => {
+        if (pendingRefreshCallbackRef.current) {
+          pendingRefreshCallbackRef.current = null;
+          isRefreshingRef.current = false;
+          reject(new Error('Token refresh timeout'));
+        }
+      }, SILENT_REFRESH_TIMEOUT_MS);
+      
+      // Store callbacks to be resolved by handleTokenResponse
+      pendingRefreshCallbackRef.current = { resolve, reject, timeoutId };
+      
+      // Request new token silently (no user prompt)
+      tokenClientRef.current.requestAccessToken({ prompt: '' });
+    });
+  }, []);
+
   const value = {
     user,
     accessToken,
@@ -195,6 +263,7 @@ export function AuthProvider({ children }) {
     login,
     logout,
     refreshToken,
+    refreshTokenAsync,
     markNeedsReauth,
   };
 
