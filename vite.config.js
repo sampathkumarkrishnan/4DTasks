@@ -8,7 +8,14 @@ export default defineConfig({
   base: process.env.NODE_ENV === 'production' ? '/4DTasks/' : '/',
   server: {
     port: 5173,
-    open: true
+    open: !process.env.DOCKER_CONTAINER,
+    // Proxy delegation API to backend so requests work with or without VITE_API_URL
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
   },
   build: {
     outDir: 'dist',

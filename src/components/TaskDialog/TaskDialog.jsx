@@ -23,74 +23,87 @@ import dayjs from 'dayjs';
 import { useTasks } from '../../context/TaskContext';
 import { useThemeMode } from '../../context/ThemeContext';
 import { getQuadrantConfig } from '../../theme/theme';
+import { TIME_HORIZON_CONFIG, TIME_HORIZON_ORDER, DEFAULT_TIME_HORIZON } from '../../constants/timeHorizon';
+import { isOnMatrix } from '../../utils/taskFilters';
 
 const filter = createFilterOptions();
 
-function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
+function TaskDialog({ open, onClose, quadrant, task, captureMode = 'matrix', timeHorizon: defaultHorizon, onSuccess }) {
   const { mode } = useThemeMode();
   const quadrantConfig = getQuadrantConfig(mode);
-  const { createTask, updateTask, createCategory, changeTaskCategory, taskLists } = useTasks();
+  const { createTask, updateTask, createCategory, changeTaskCategory, taskLists, createDelegation } = useTasks();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
-  
+
+  const isBacklogCapture = captureMode === 'backlog' && !task;
+  const isEditing = !!task;
+
   const [formData, setFormData] = useState({
     title: '',
     notes: '',
+    timeHorizon: DEFAULT_TIME_HORIZON,
     quadrant: 'do',
     due: null,
     delegatedTo: '',
-    categoryListId: null, // Now stores the list ID, not a string name
+    categoryListId: null,
+    scheduleForExecution: false,
   });
 
-  const isEditing = !!task;
-
   useEffect(() => {
-    if (open) {
-      if (task) {
-        setFormData({
-          title: task.cleanTitle || task.title || '', // Use cleanTitle (without prefix) for editing
-          notes: task.displayNotes || '',
-          quadrant: task.metadata?.quadrant || quadrant || 'do',
-          due: task.due ? dayjs(task.due) : null,
-          delegatedTo: task.metadata?.delegatedTo || '',
-          categoryListId: task.listId || null, // Use the task's list ID
-        });
-      } else {
-        setFormData({
-          title: '',
-          notes: '',
-          quadrant: quadrant || 'do',
-          due: null,
-          delegatedTo: '',
-          categoryListId: null,
-        });
-      }
+    if (!open) return;
+
+    if (task) {
+      const onMatrix = isOnMatrix(task);
+      setFormData({
+        title: task.cleanTitle || task.title || '',
+        notes: task.displayNotes || '',
+        timeHorizon: task.metadata?.timeHorizon || DEFAULT_TIME_HORIZON,
+        quadrant: task.metadata?.quadrant || quadrant || 'delay',
+        due: task.due ? dayjs(task.due) : null,
+        delegatedTo: task.metadata?.delegatedTo || '',
+        categoryListId: task.listId || null,
+        scheduleForExecution: onMatrix,
+      });
+    } else if (captureMode === 'matrix') {
+      setFormData({
+        title: '',
+        notes: '',
+        timeHorizon: DEFAULT_TIME_HORIZON,
+        quadrant: quadrant || 'do',
+        due: dayjs(),
+        delegatedTo: '',
+        categoryListId: null,
+        scheduleForExecution: true,
+      });
+    } else {
+      setFormData({
+        title: '',
+        notes: '',
+        timeHorizon: defaultHorizon || DEFAULT_TIME_HORIZON,
+        quadrant: 'delay',
+        due: null,
+        delegatedTo: '',
+        categoryListId: null,
+        scheduleForExecution: false,
+      });
     }
-  }, [open, task, quadrant]);
+  }, [open, task, quadrant, captureMode, defaultHorizon]);
 
   const handleChange = (field) => (event) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: event.target.value,
-    }));
+    setFormData((prev) => ({ ...prev, [field]: event.target.value }));
   };
 
   const handleDateChange = (newValue) => {
-    setFormData((prev) => ({
-      ...prev,
-      due: newValue,
-    }));
+    setFormData((prev) => ({ ...prev, due: newValue }));
   };
 
   const handleCategoryChange = async (event, newValue) => {
     if (!newValue) {
-      // Cleared the selection
       setFormData((prev) => ({ ...prev, categoryListId: null }));
       return;
     }
-    
+
     if (typeof newValue === 'object' && newValue.inputValue) {
-      // User wants to create a new category (list)
       setIsCreatingCategory(true);
       try {
         const newList = await createCategory(newValue.inputValue);
@@ -101,57 +114,69 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
         setIsCreatingCategory(false);
       }
     } else if (typeof newValue === 'object' && newValue.id) {
-      // User selected an existing list
       setFormData((prev) => ({ ...prev, categoryListId: newValue.id }));
     }
   };
 
-  // Get the currently selected list object
   const getSelectedList = () => {
     if (!formData.categoryListId) return null;
     return taskLists.find((list) => list.id === formData.categoryListId) || null;
   };
 
+  const showExecutionFields = formData.scheduleForExecution && !isBacklogCapture;
+  const showDatePicker = showExecutionFields && (
+    formData.quadrant === 'do' || formData.quadrant === 'delay' || formData.quadrant === 'delegate'
+  );
+  const showDelegateField = showExecutionFields && formData.quadrant === 'delegate';
+
   const handleSubmit = async (event) => {
     event.preventDefault();
-    
     if (!formData.title.trim()) return;
 
     setIsSubmitting(true);
 
     try {
+      const inExecutionSet = showExecutionFields && formData.due;
       const taskData = {
         title: formData.title.trim(),
         notes: formData.notes.trim(),
-        quadrant: formData.quadrant,
-        due: formData.due ? formData.due.format('YYYY-MM-DD') + 'T12:00:00.000Z' : null,
-        delegatedTo: formData.quadrant === 'delegate' ? formData.delegatedTo : null,
+        timeHorizon: formData.timeHorizon,
+        quadrant: inExecutionSet ? formData.quadrant : null,
+        due: inExecutionSet && formData.due ? formData.due.format('YYYY-MM-DD') + 'T12:00:00.000Z' : null,
+        delegatedTo: inExecutionSet && formData.quadrant === 'delegate' ? formData.delegatedTo : null,
         categoryListId: formData.categoryListId,
       };
 
       if (isEditing) {
-        // Check if category (list) changed
         if (task.listId !== formData.categoryListId && formData.categoryListId) {
-          // Move task to new list first
           const movedTask = await changeTaskCategory(task.id, formData.categoryListId);
-          // Then update other properties on the new task
-          await updateTask(movedTask.id, {
-            title: taskData.title,
-            notes: taskData.notes,
-            quadrant: taskData.quadrant,
-            due: taskData.due,
-            delegatedTo: taskData.delegatedTo,
-          });
+          await updateTask(movedTask.id, taskData);
         } else {
-          // Same list, just update
           await updateTask(task.id, taskData);
         }
         onSuccess?.('Task updated successfully');
       } else {
-        await createTask(taskData);
+        const created = await createTask(taskData);
+        if (created && taskData.quadrant === 'delegate' && taskData.delegatedTo?.trim()) {
+          try {
+            await createDelegation({
+              taskPayload: {
+                title: taskData.title,
+                notes: taskData.notes || '',
+                due: taskData.due || null,
+                listTitle: created.listTitle || null,
+              },
+              toEmail: taskData.delegatedTo.trim(),
+              sourceListId: created.listId,
+              sourceTaskId: created.id,
+            });
+          } catch (delegErr) {
+            console.warn('Task created but delegation invite failed:', delegErr);
+          }
+        }
         onSuccess?.('Task created successfully');
       }
-      
+
       onClose();
     } catch (error) {
       console.error('Failed to save task:', error);
@@ -160,32 +185,23 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
     }
   };
 
-  const showDatePicker = formData.quadrant === 'do' || formData.quadrant === 'delay' || formData.quadrant === 'delegate';
-  const showDelegateField = formData.quadrant === 'delegate';
-
   return (
     <Dialog
       open={open}
       onClose={onClose}
       maxWidth="sm"
       fullWidth
-      PaperProps={{
-        component: 'form',
-        onSubmit: handleSubmit,
-      }}
+      PaperProps={{ component: 'form', onSubmit: handleSubmit }}
     >
       <DialogTitle sx={{ pb: 1 }}>
         <Typography variant="h5" component="span" sx={{ fontWeight: 600 }}>
           {isEditing ? 'Edit Task' : 'New Task'}
         </Typography>
-        {quadrant && (
+        {captureMode === 'matrix' && quadrant && !isEditing && (
           <Chip
             label={quadrantConfig[quadrant]?.title}
             size="small"
-            sx={{
-              ml: 1.5,
-              bgcolor: alpha(quadrantConfig[quadrant]?.color || '#6B8F71', 0.3),
-            }}
+            sx={{ ml: 1.5, bgcolor: alpha(quadrantConfig[quadrant]?.color || '#6B8F71', 0.3) }}
           />
         )}
       </DialogTitle>
@@ -214,41 +230,66 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
           />
 
           <FormControl fullWidth>
-            <InputLabel>Quadrant</InputLabel>
+            <InputLabel>Time Horizon</InputLabel>
             <Select
-              value={formData.quadrant}
-              label="Quadrant"
-              onChange={handleChange('quadrant')}
+              value={formData.timeHorizon}
+              label="Time Horizon"
+              onChange={handleChange('timeHorizon')}
             >
-              {Object.entries(quadrantConfig).map(([key, config]) => (
+              {TIME_HORIZON_ORDER.map((key) => (
                 <MenuItem key={key} value={key}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Box
-                      sx={{
-                        width: 12,
-                        height: 12,
-                        borderRadius: 0.5,
-                        bgcolor: config.color,
-                      }}
-                    />
-                    {config.title} - {config.subtitle}
+                    <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: TIME_HORIZON_CONFIG[key].color }} />
+                    {TIME_HORIZON_CONFIG[key].title} — {TIME_HORIZON_CONFIG[key].subtitle}
                   </Box>
                 </MenuItem>
               ))}
             </Select>
           </FormControl>
 
+          {(isEditing || captureMode === 'backlog') && (
+            <FormControl fullWidth>
+              <InputLabel>Execution</InputLabel>
+              <Select
+                value={formData.scheduleForExecution ? 'scheduled' : 'backlog'}
+                label="Execution"
+                onChange={(e) => setFormData((prev) => ({
+                  ...prev,
+                  scheduleForExecution: e.target.value === 'scheduled',
+                  due: e.target.value === 'scheduled' && !prev.due ? dayjs() : prev.due,
+                }))}
+              >
+                <MenuItem value="backlog">Keep in backlog (no date)</MenuItem>
+                <MenuItem value="scheduled">Schedule for execution</MenuItem>
+              </Select>
+            </FormControl>
+          )}
+
+          {showExecutionFields && (
+            <FormControl fullWidth>
+              <InputLabel>Quadrant</InputLabel>
+              <Select value={formData.quadrant} label="Quadrant" onChange={handleChange('quadrant')}>
+                {Object.entries(quadrantConfig).map(([key, config]) => (
+                  <MenuItem key={key} value={key}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: config.color }} />
+                      {config.title} - {config.subtitle}
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+
           {showDatePicker && (
             <DatePicker
-              label={formData.quadrant === 'do' ? 'Due date' : 'Schedule for'}
+              label="Due date"
               value={formData.due}
               onChange={handleDateChange}
               slotProps={{
                 textField: {
                   fullWidth: true,
-                  helperText: formData.quadrant === 'delay' 
-                    ? 'When should this task be done?' 
-                    : 'When is this due?',
+                  helperText: 'When you plan to work this (also its deadline)',
                 },
               }}
             />
@@ -262,7 +303,6 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
               onChange={handleChange('delegatedTo')}
               fullWidth
               placeholder="colleague@example.com"
-              helperText="Enter the email of the person to delegate this task to"
             />
           )}
 
@@ -273,19 +313,12 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
             filterOptions={(options, params) => {
               const filtered = filter(options, params);
               const { inputValue } = params;
-              
-              // Suggest creating a new category (Google Tasks List)
               const isExisting = options.some(
                 (option) => option.title?.toLowerCase() === inputValue.toLowerCase()
               );
               if (inputValue !== '' && !isExisting) {
-                filtered.push({
-                  inputValue,
-                  title: `Create list "${inputValue}"`,
-                  isNew: true,
-                });
+                filtered.push({ inputValue, title: `Create list "${inputValue}"`, isNew: true });
               }
-              
               return filtered;
             }}
             selectOnFocus
@@ -294,26 +327,19 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
             options={taskLists}
             getOptionLabel={(option) => {
               if (!option) return '';
-              if (option.inputValue) {
-                return option.inputValue;
-              }
+              if (option.inputValue) return option.inputValue;
               return option.title || '';
             }}
-            isOptionEqualToValue={(option, value) => {
-              if (!option || !value) return false;
-              return option.id === value.id;
-            }}
+            isOptionEqualToValue={(option, value) => option?.id === value?.id}
             renderOption={(props, option) => {
               const { key, ...restProps } = props;
               return (
                 <li key={key} {...restProps}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {option.isNew ? (
-                      <Typography color="primary">{option.title}</Typography>
-                    ) : (
-                      <Typography>{option.title}</Typography>
-                    )}
-                  </Box>
+                  {option.isNew ? (
+                    <Typography color="primary">{option.title}</Typography>
+                  ) : (
+                    <Typography>{option.title}</Typography>
+                  )}
                 </li>
               );
             }}
@@ -321,9 +347,8 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
             renderInput={(params) => (
               <TextField
                 {...params}
-                label="Category / List (optional)"
+                label="Project / List (optional)"
                 placeholder="Select or create a Google Tasks list"
-                helperText="Tasks are organized by Google Tasks Lists"
                 InputProps={{
                   ...params.InputProps,
                   endAdornment: (
@@ -340,9 +365,7 @@ function TaskDialog({ open, onClose, quadrant, task, onSuccess }) {
       </DialogContent>
 
       <DialogActions sx={{ px: 3, pb: 3 }}>
-        <Button onClick={onClose} color="inherit">
-          Cancel
-        </Button>
+        <Button onClick={onClose} color="inherit">Cancel</Button>
         <Button
           type="submit"
           variant="contained"

@@ -1,34 +1,34 @@
 import { createTheme, alpha } from '@mui/material/styles';
 
-// Quadrant colors - work in both light and dark modes
+// Quadrant colors - jewel-toned, balanced saturation for light and dark modes
 const quadrantColors = {
   do: {
-    dark: '#2D5A4A',
-    light: '#4A8F6F',
+    dark: '#48C99A',
+    light: '#2D9172',
   },
   delegate: {
-    dark: '#4A4A6A',
-    light: '#6B6B9A',
+    dark: '#8898EE',
+    light: '#5268C4',
   },
   delay: {
-    dark: '#5A4A3A',
-    light: '#8B7355',
+    dark: '#D9AD54',
+    light: '#B8842A',
   },
   delete: {
-    dark: '#4A3A3A',
-    light: '#7A5A5A',
+    dark: '#E08896',
+    light: '#B85A68',
   },
 };
 
-// Accent colors
+// Accent colors — aligned with Do (primary) and Delegate (secondary)
 const accentColors = {
   primary: {
-    dark: '#6B8F71',
-    light: '#4A7050',
+    dark: '#48C99A',
+    light: '#2D9172',
   },
   secondary: {
-    dark: '#8B7355',
-    light: '#6B5540',
+    dark: '#8898EE',
+    light: '#5268C4',
   },
 };
 
@@ -45,24 +45,24 @@ export function createAppTheme(mode) {
     },
     background: isDark
       ? {
-          default: '#1A1A1F',
-          paper: '#242429',
-          elevated: '#2A2A30',
+          default: '#131318',
+          paper: '#1C1C22',
+          elevated: '#26262E',
         }
       : {
-          default: '#F5F5F7',
+          default: '#F2F4F8',
           paper: '#FFFFFF',
-          elevated: '#FAFAFA',
+          elevated: '#F8F9FB',
         },
     text: isDark
       ? {
-          primary: '#E8E8EC',
-          secondary: '#9898A0',
+          primary: '#ECECF0',
+          secondary: '#9A9AA8',
           disabled: '#606068',
         }
       : {
-          primary: '#1A1A1F',
-          secondary: '#5A5A65',
+          primary: '#18181F',
+          secondary: '#55556A',
           disabled: '#9898A0',
         },
   };
@@ -72,14 +72,14 @@ export function createAppTheme(mode) {
       mode,
       primary: {
         main: isDark ? accentColors.primary.dark : accentColors.primary.light,
-        light: isDark ? '#8FB396' : '#6B9070',
-        dark: isDark ? '#4A6B4F' : '#3A5A40',
+        light: isDark ? '#6DD4AE' : '#4DB896',
+        dark: isDark ? '#3AA882' : '#237A60',
         contrastText: '#FFFFFF',
       },
       secondary: {
         main: isDark ? accentColors.secondary.dark : accentColors.secondary.light,
-        light: isDark ? '#A89078' : '#8B7060',
-        dark: isDark ? '#6B5540' : '#5A4530',
+        light: isDark ? '#A4B0F2' : '#6B7FD4',
+        dark: isDark ? '#6E7FD6' : '#4254A8',
         contrastText: '#FFFFFF',
       },
       background: {

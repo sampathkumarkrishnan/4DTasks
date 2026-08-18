@@ -146,6 +146,7 @@ export const tasksApi = {
 
 // Title prefix utilities for storing quadrant/assignee info in task title
 // Format: [QUADRANT] or [DELEGATE:email] at the start of title
+// Backlog tasks have no prefix until promoted to the execution set
 export const titlePrefix = {
   // Quadrant labels for prefixes
   QUADRANTS: {
@@ -155,10 +156,12 @@ export const titlePrefix = {
     delete: 'DELETE',
   },
 
-  // Create a prefixed title
-  create(cleanTitle, quadrant, delegatedTo = null) {
-    const quadrantLabel = this.QUADRANTS[quadrant] || 'DO';
+  // Create a prefixed title (no prefix when quadrant is null — backlog tasks)
+  create(cleanTitle, quadrant = null, delegatedTo = null) {
     const title = cleanTitle || 'Untitled';
+    if (!quadrant) return title;
+
+    const quadrantLabel = this.QUADRANTS[quadrant] || 'DO';
     
     if (quadrant === 'delegate' && delegatedTo) {
       return `[${quadrantLabel}:${delegatedTo}] ${title}`;
@@ -170,7 +173,7 @@ export const titlePrefix = {
   // Parse a title to extract quadrant, delegatedTo, and clean title
   parse(title) {
     if (!title) {
-      return { quadrant: 'do', delegatedTo: null, cleanTitle: '' };
+      return { quadrant: null, delegatedTo: null, cleanTitle: '' };
     }
 
     // Match patterns like [DO], [DELEGATE:email@example.com], etc.
@@ -188,8 +191,8 @@ export const titlePrefix = {
       return { quadrant, delegatedTo, cleanTitle };
     }
 
-    // No prefix found - return as-is with default quadrant
-    return { quadrant: 'do', delegatedTo: null, cleanTitle: title };
+    // No prefix — backlog task
+    return { quadrant: null, delegatedTo: null, cleanTitle: title };
   },
 
   // Check if a title has our prefix format
@@ -198,21 +201,23 @@ export const titlePrefix = {
     return /^\[(DO|DELEGATE|DELAY|DELETE)(?::[^\]]+)?\]/i.test(title);
   },
 
-  // Update prefix on an existing title
+  // Update prefix on an existing title (pass null quadrant to strip)
   update(title, quadrant, delegatedTo = null) {
     const { cleanTitle } = this.parse(title);
     return this.create(cleanTitle, quadrant, delegatedTo);
   },
 };
 
-// Legacy: Helper functions for metadata stored in notes (for backward compatibility)
+const META_MARKER = '\n---EISENHOWER_META---\n';
+const META_BLOCK_REGEX = /(?:^|\n)---EISENHOWER_META---\n[\s\S]*$/;
+const DEFAULT_TIME_HORIZON = 'adhoc';
+
+// Metadata stored in notes (time horizon + legacy fields)
 export const taskMetadata = {
-  // Parse metadata from task notes (legacy format)
   parse(notes) {
     if (!notes) return {};
     try {
-      // Look for JSON metadata at the end of notes
-      const metaMatch = notes.match(/\n---EISENHOWER_META---\n(.+)$/s);
+      const metaMatch = notes.match(/(?:^|\n)---EISENHOWER_META---\n(.+)$/s);
       if (metaMatch) {
         return JSON.parse(metaMatch[1]);
       }
@@ -222,16 +227,32 @@ export const taskMetadata = {
     }
   },
 
-  // Get display notes (without metadata)
   getDisplayNotes(notes) {
     if (!notes) return '';
-    return notes.replace(/\n---EISENHOWER_META---\n.+$/s, '').trim();
+    return notes.replace(META_BLOCK_REGEX, '').trim();
   },
 
-  // Notes are now just plain notes (no metadata)
-  serialize(displayNotes) {
-    return displayNotes || '';
+  serialize(displayNotes, meta = {}) {
+    const payload = {};
+    const timeHorizon = meta.timeHorizon;
+
+    // Default horizon needs no storage — enrichTask falls back to adhoc on read
+    if (timeHorizon && timeHorizon !== DEFAULT_TIME_HORIZON) {
+      payload.timeHorizon = timeHorizon;
+    }
+    if (meta.quadrant) payload.quadrant = meta.quadrant;
+    if (meta.delegatedTo) payload.delegatedTo = meta.delegatedTo;
+
+    const clean = (displayNotes || '').trim();
+    const hasMeta = Object.keys(payload).length > 0;
+
+    if (!clean && !hasMeta) return '';
+
+    const metaBlock = `${META_MARKER}${JSON.stringify(payload)}`;
+    return clean ? `${clean}${metaBlock}` : `---EISENHOWER_META---\n${JSON.stringify(payload)}`;
   },
+
+  META_MARKER,
 };
 
 // Factory to create an auth retry wrapper for API calls
@@ -242,8 +263,9 @@ export function createAuthRetryWrapper(refreshTokenAsync, getToken) {
       // First attempt with current token
       return await apiCallFactory(getToken());
     } catch (error) {
-      if (error instanceof AuthenticationError) {
-        // Token expired or invalid - attempt silent refresh
+      const isAuthError = error instanceof AuthenticationError || (error && error.status === 401);
+      if (isAuthError) {
+        // Token expired or invalid (Google or our backend 401) - attempt silent refresh
         try {
           const newToken = await refreshTokenAsync();
           // Retry the operation with the new token

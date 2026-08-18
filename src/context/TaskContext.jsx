@@ -1,8 +1,31 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { taskListsApi, tasksApi, taskMetadata, titlePrefix, AuthenticationError, createAuthRetryWrapper } from '../services/googleTasksApi';
+import { delegationsApi, getDelegationIdFromNotes, addDelegationIdToNotes } from '../services/delegationsApi';
+import { DEFAULT_TIME_HORIZON } from '../constants/timeHorizon';
+import { isOnMatrix, isInBacklog } from '../utils/taskFilters';
 
 const TaskContext = createContext(null);
+
+function enrichTask(task, list) {
+  const { quadrant, delegatedTo, cleanTitle } = titlePrefix.parse(task.title);
+  const notesMeta = taskMetadata.parse(task.notes);
+
+  const metadata = {
+    timeHorizon: notesMeta.timeHorizon || DEFAULT_TIME_HORIZON,
+    quadrant: titlePrefix.hasPrefix(task.title) ? quadrant : (notesMeta.quadrant || null),
+    delegatedTo: titlePrefix.hasPrefix(task.title) ? delegatedTo : (notesMeta.delegatedTo || null),
+  };
+
+  return {
+    ...task,
+    listId: list.id,
+    listTitle: list.title,
+    metadata,
+    cleanTitle,
+    displayNotes: taskMetadata.getDisplayNotes(task.notes),
+  };
+}
 
 // Action types
 const ACTIONS = {
@@ -16,12 +39,14 @@ const ACTIONS = {
   ADD_TASK_LIST: 'ADD_TASK_LIST',
   SET_SHOW_COMPLETED: 'SET_SHOW_COMPLETED',
   SET_PRIMARY_LIST: 'SET_PRIMARY_LIST',
+  SET_SENT_DELEGATIONS: 'SET_SENT_DELEGATIONS',
 };
 
 const initialState = {
   taskLists: [],       // Google Task Lists (categories)
   primaryListId: null, // The user's primary/first list
   tasks: [],           // All tasks from all lists
+  sentDelegations: [], // Delegations I sent (for sync and badges)
   isLoading: false,
   error: null,
   showCompleted: {     // Track show/hide completed per quadrant
@@ -78,13 +103,26 @@ function taskReducer(state, action) {
         },
       };
     
+    case ACTIONS.SET_SENT_DELEGATIONS:
+      return { ...state, sentDelegations: action.payload };
+    
     default:
       return state;
   }
 }
 
 export function TaskProvider({ children }) {
-  const { accessToken, isAuthenticated, markNeedsReauth, refreshTokenAsync } = useAuth();
+  const { accessToken, isAuthenticated, markNeedsReauth, refreshTokenAsync, user } = useAuth();
+  // Email for delegation API (from auth context or localStorage so backend doesn't need to call Google)
+  const userEmail = useMemo(() => {
+    if (user?.email) return user.email;
+    try {
+      const stored = localStorage.getItem('google_user');
+      return stored ? JSON.parse(stored).email : null;
+    } catch {
+      return null;
+    }
+  }, [user?.email]);
   const [state, dispatch] = useReducer(taskReducer, initialState);
 
   // Create the auth retry wrapper - memoized to prevent recreation on every render
@@ -116,6 +154,45 @@ export function TaskProvider({ children }) {
     }
   }, [accessToken, withAuthRetry]);
 
+  // Sync sent delegations: fetch from API, update Google tasks for completed/declined.
+  // Only depends on accessToken/withAuthRetry so it stays stable and does not retrigger fetchTasks effect.
+  const syncSentDelegations = useCallback(async (tasksOverride = []) => {
+    if (!accessToken) return;
+    try {
+      const sent = await withAuthRetry((token) => delegationsApi.getSent(token, userEmail));
+      dispatch({ type: ACTIONS.SET_SENT_DELEGATIONS, payload: sent });
+      const tasksList = tasksOverride;
+      for (const d of sent) {
+        if (!d.sourceListId || !d.sourceTaskId) continue;
+        if (d.status === 'completed') {
+          try {
+            await withAuthRetry((token) =>
+              tasksApi.update(token, d.sourceListId, d.sourceTaskId, { status: 'completed' })
+            );
+          } catch (e) {
+            console.warn('Failed to sync completed delegation to Google task:', e);
+          }
+        } else if (d.status === 'declined') {
+          const task = tasksList.find(
+            (t) => t.listId === d.sourceListId && t.id === d.sourceTaskId
+          );
+          const noteSuffix = `\nDeclined by ${d.toEmail} on ${d.declinedAt || ''}`;
+          const newNotes = (task?.notes || task?.displayNotes || '') + noteSuffix;
+          try {
+            await withAuthRetry((token) =>
+              tasksApi.update(token, d.sourceListId, d.sourceTaskId, { notes: newNotes })
+            );
+          } catch (e) {
+            console.warn('Failed to sync declined delegation to Google task:', e);
+          }
+        }
+      }
+    } catch (e) {
+      if (!import.meta.env.VITE_API_URL) return;
+      console.warn('Failed to fetch sent delegations:', e);
+    }
+  }, [accessToken, withAuthRetry, userEmail]);
+
   // Fetch all tasks from all lists
   const fetchTasks = useCallback(async () => {
     if (!accessToken) return;
@@ -136,28 +213,7 @@ export function TaskProvider({ children }) {
         try {
           const tasks = await withAuthRetry((token) => tasksApi.getAll(token, list.id, true, true));
           // Enrich each task with list info and parsed metadata
-          return tasks.map((task) => {
-            // Parse title prefix (new format)
-            const { quadrant, delegatedTo, cleanTitle } = titlePrefix.parse(task.title);
-            
-            // Also check legacy metadata for backward compatibility
-            const legacyMeta = taskMetadata.parse(task.notes);
-            
-            // Prefer title prefix data, fall back to legacy metadata
-            const metadata = {
-              quadrant: titlePrefix.hasPrefix(task.title) ? quadrant : (legacyMeta.quadrant || 'do'),
-              delegatedTo: titlePrefix.hasPrefix(task.title) ? delegatedTo : (legacyMeta.delegatedTo || null),
-            };
-            
-            return {
-              ...task,
-              listId: list.id,
-              listTitle: list.title,
-              metadata,
-              cleanTitle, // The title without prefix for display
-              displayNotes: taskMetadata.getDisplayNotes(task.notes),
-            };
-          });
+          return tasks.map((task) => enrichTask(task, list));
         } catch (error) {
           // Re-throw authentication errors to be handled at top level
           if (error instanceof AuthenticationError) {
@@ -172,6 +228,7 @@ export function TaskProvider({ children }) {
       const allTasks = tasksArrays.flat();
       
       dispatch({ type: ACTIONS.SET_TASKS, payload: allTasks });
+      syncSentDelegations(allTasks);
     } catch (error) {
       // Handle 401 authentication errors by marking re-auth needed
       if (error instanceof AuthenticationError) {
@@ -180,8 +237,10 @@ export function TaskProvider({ children }) {
         return;
       }
       dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
+    } finally {
+      dispatch({ type: ACTIONS.SET_LOADING, payload: false });
     }
-  }, [accessToken, fetchTaskLists, markNeedsReauth, withAuthRetry]);
+  }, [accessToken, fetchTaskLists, markNeedsReauth, withAuthRetry, syncSentDelegations]);
 
   // Load tasks when authenticated
   useEffect(() => {
@@ -211,37 +270,37 @@ export function TaskProvider({ children }) {
   const createTask = useCallback(async (taskData) => {
     if (!accessToken) return;
     
-    // Determine which list to create the task in
     const targetListId = getListIdForCategory(taskData.categoryListId);
     if (!targetListId) {
       dispatch({ type: ACTIONS.SET_ERROR, payload: 'No task list available' });
       return;
     }
     
-    const quadrant = taskData.quadrant || 'do';
+    const timeHorizon = taskData.timeHorizon || DEFAULT_TIME_HORIZON;
+    const quadrant = taskData.quadrant || null;
     const delegatedTo = taskData.delegatedTo || null;
+    const due = taskData.due || null;
+    const inExecutionSet = Boolean(quadrant && due);
     
-    // Create prefixed title for Google Tasks visibility
-    const prefixedTitle = titlePrefix.create(taskData.title, quadrant, delegatedTo);
+    const prefixedTitle = inExecutionSet
+      ? titlePrefix.create(taskData.title, quadrant, delegatedTo)
+      : titlePrefix.create(taskData.title, null);
+    
+    const serializedNotes = taskMetadata.serialize(taskData.notes || '', { timeHorizon });
     
     const taskPayload = {
       title: prefixedTitle,
-      notes: taskData.notes || '', // Notes are now just notes, no hidden metadata
-      due: taskData.due || null,
+      due,
       status: 'needsAction',
     };
+    if (serializedNotes) {
+      taskPayload.notes = serializedNotes;
+    }
     
     try {
       const newTask = await withAuthRetry((token) => tasksApi.create(token, targetListId, taskPayload));
       
-      const enrichedTask = {
-        ...newTask,
-        listId: targetListId,
-        listTitle: getListTitle(targetListId),
-        metadata: { quadrant, delegatedTo },
-        cleanTitle: taskData.title, // Store the clean title for display
-        displayNotes: taskData.notes || '',
-      };
+      const enrichedTask = enrichTask(newTask, { id: targetListId, title: getListTitle(targetListId) });
       
       dispatch({ type: ACTIONS.ADD_TASK, payload: enrichedTask });
       return enrichedTask;
@@ -266,38 +325,43 @@ export function TaskProvider({ children }) {
       return;
     }
     
-    // Build new metadata
+    const existingMeta = task.metadata || {};
+    const timeHorizon = updates.timeHorizon !== undefined ? updates.timeHorizon : (existingMeta.timeHorizon || DEFAULT_TIME_HORIZON);
+    
+    const newQuadrant = updates.quadrant !== undefined ? updates.quadrant : existingMeta.quadrant;
+    const newDelegatedTo = updates.delegatedTo !== undefined ? updates.delegatedTo : (existingMeta.delegatedTo || null);
+    const newDue = updates.due !== undefined ? updates.due : task.due;
+    const inExecutionSet = Boolean(newQuadrant && newDue);
+    
     const newMetadata = {
-      quadrant: updates.quadrant !== undefined ? updates.quadrant : task.metadata?.quadrant || 'do',
-      delegatedTo: updates.delegatedTo !== undefined ? updates.delegatedTo : task.metadata?.delegatedTo || null,
+      timeHorizon,
+      quadrant: inExecutionSet ? newQuadrant : null,
+      delegatedTo: inExecutionSet && newQuadrant === 'delegate' ? newDelegatedTo : null,
     };
     
-    // Determine the clean title (without prefix)
-    // Handle case where task.title might be undefined
     const existingCleanTitle = task.cleanTitle || (task.title ? titlePrefix.parse(task.title).cleanTitle : '');
     const cleanTitle = updates.title !== undefined ? updates.title : existingCleanTitle;
     
-    // Create the new prefixed title
-    const prefixedTitle = titlePrefix.create(cleanTitle, newMetadata.quadrant, newMetadata.delegatedTo);
+    const prefixedTitle = inExecutionSet
+      ? titlePrefix.create(cleanTitle, newMetadata.quadrant, newMetadata.delegatedTo)
+      : titlePrefix.create(cleanTitle, null);
     
-    // Build task payload - only include fields that have values
     const taskPayload = {
       title: prefixedTitle,
     };
     
-    // Only include optional fields if they have values
     if (updates.due !== undefined) {
       taskPayload.due = updates.due;
+    } else if (!inExecutionSet) {
+      taskPayload.due = null;
     }
     if (updates.status !== undefined) {
       taskPayload.status = updates.status;
     }
     
-    // Handle notes - only include if we have a value
     const notesValue = updates.notes !== undefined ? updates.notes : (task.displayNotes || '');
-    if (notesValue) {
-      taskPayload.notes = notesValue;
-    }
+    const serializedNotes = taskMetadata.serialize(notesValue, { timeHorizon });
+    taskPayload.notes = serializedNotes || '';
     
     try {
       // Optimistic update
@@ -309,8 +373,10 @@ export function TaskProvider({ children }) {
           cleanTitle,
           metadata: newMetadata,
           ...(updates.due !== undefined && { due: updates.due }),
+          ...(!inExecutionSet && updates.due === undefined && { due: null }),
           ...(updates.status !== undefined && { status: updates.status }),
           displayNotes: notesValue,
+          notes: serializedNotes || null,
         },
       });
       
@@ -353,18 +419,7 @@ export function TaskProvider({ children }) {
       // Remove old task from state
       dispatch({ type: ACTIONS.REMOVE_TASK, payload: taskId });
       
-      // Parse the title to get metadata
-      const { quadrant, delegatedTo, cleanTitle } = titlePrefix.parse(newTask.title);
-      
-      // Add new task to state
-      const enrichedTask = {
-        ...newTask,
-        listId: targetListId,
-        listTitle: getListTitle(targetListId),
-        metadata: { quadrant, delegatedTo },
-        cleanTitle,
-        displayNotes: taskMetadata.getDisplayNotes(newTask.notes),
-      };
+      const enrichedTask = enrichTask(newTask, { id: targetListId, title: getListTitle(targetListId) });
       
       dispatch({ type: ACTIONS.ADD_TASK, payload: enrichedTask });
       return enrichedTask;
@@ -430,8 +485,18 @@ export function TaskProvider({ children }) {
     if (!task) return;
     
     const newStatus = task.status === 'completed' ? 'needsAction' : 'completed';
-    return updateTask(taskId, { status: newStatus });
-  }, [state.tasks, updateTask]);
+    await updateTask(taskId, { status: newStatus });
+    if (newStatus === 'completed' && accessToken) {
+      const delegationId = getDelegationIdFromNotes(task.notes);
+      if (delegationId) {
+        try {
+          await withAuthRetry((token) => delegationsApi.complete(token, delegationId, userEmail));
+        } catch (e) {
+          console.warn('Failed to notify delegation complete:', e);
+        }
+      }
+    }
+  }, [state.tasks, updateTask, accessToken, withAuthRetry]);
 
   // Toggle show completed for a quadrant
   const toggleShowCompleted = useCallback((quadrant) => {
@@ -441,18 +506,77 @@ export function TaskProvider({ children }) {
     });
   }, [state.showCompleted]);
 
-  // Get tasks by quadrant
+  // Get tasks by quadrant (execution set only: due on/before today)
   const getTasksByQuadrant = useCallback((quadrant) => {
     return state.tasks.filter((task) => {
-      const taskQuadrant = task.metadata?.quadrant || 'do';
+      if (!isOnMatrix(task)) return false;
+      const taskQuadrant = task.metadata?.quadrant;
+      if (!taskQuadrant || taskQuadrant !== quadrant) return false;
       const isCompleted = task.status === 'completed';
       
-      if (taskQuadrant !== quadrant) return false;
       if (isCompleted && !state.showCompleted[quadrant]) return false;
       
       return true;
     });
   }, [state.tasks, state.showCompleted]);
+
+  const getBacklogTasksByHorizon = useCallback((horizon) => {
+    return state.tasks.filter((task) => {
+      if (!isInBacklog(task)) return false;
+      return (task.metadata?.timeHorizon || DEFAULT_TIME_HORIZON) === horizon;
+    });
+  }, [state.tasks]);
+
+  const getGuardrailWarnings = useCallback(() => {
+    const warnings = [];
+    const doActive = getTasksByQuadrant('do').filter((t) => t.status !== 'completed');
+    const delayActive = getTasksByQuadrant('delay').filter((t) => t.status !== 'completed');
+
+    if (doActive.length > 2) {
+      warnings.push({
+        id: 'q1-overflow',
+        message: `Do quadrant has ${doActive.length} items — consider moving ${doActive.length - 2} elsewhere.`,
+      });
+    }
+
+    if (delayActive.length > 0) {
+      const hasStrategic = delayActive.some((t) => t.metadata?.timeHorizon === 'strategic');
+      const hasExploration = delayActive.some((t) => t.metadata?.timeHorizon === 'exploration');
+      if (!hasStrategic || !hasExploration) {
+        const missing = [];
+        if (!hasStrategic) missing.push('Strategic');
+        if (!hasExploration) missing.push('Exploration');
+        warnings.push({
+          id: 'q2-composition',
+          message: `Delay quadrant is missing ${missing.join(' and ')} work — protect your Q2.`,
+        });
+      }
+    }
+
+    return warnings;
+  }, [getTasksByQuadrant]);
+
+  const scheduleTask = useCallback(async (taskId, { due, quadrant, delegatedTo }) => {
+    return updateTask(taskId, { due, quadrant, delegatedTo });
+  }, [updateTask]);
+
+  const splitTask = useCallback(async (sourceTask, childTitles) => {
+    const titles = childTitles.map((t) => t.trim()).filter(Boolean);
+    if (titles.length === 0) return [];
+
+    const created = [];
+    for (const title of titles) {
+      const notes = `Split from: ${sourceTask.cleanTitle || sourceTask.title}`;
+      const child = await createTask({
+        title,
+        notes,
+        timeHorizon: 'tactical',
+        categoryListId: sourceTask.listId,
+      });
+      if (child) created.push(child);
+    }
+    return created;
+  }, [createTask]);
 
   // Create a category (new task list)
   const createCategory = useCallback(async (name) => {
@@ -468,6 +592,44 @@ export function TaskProvider({ children }) {
     }
   }, [accessToken, withAuthRetry]);
 
+  // Accept a delegated task: create in Google Tasks (DO), then PATCH accept with task ids
+  const acceptDelegation = useCallback(async (delegation) => {
+    if (!accessToken || !state.primaryListId) return;
+    const payload = delegation.taskPayload || {};
+    const title = titlePrefix.create(payload.title || 'Untitled', 'do');
+    const notes = addDelegationIdToNotes(payload.notes || '', delegation.id);
+    const taskPayload = { title, notes, due: payload.due || null, status: 'needsAction' };
+    const created = await withAuthRetry((token) =>
+      tasksApi.create(token, state.primaryListId, taskPayload)
+    );
+    await withAuthRetry((token) =>
+      delegationsApi.accept(token, delegation.id, {
+        assigneeTaskId: created.id,
+        assigneeListId: state.primaryListId,
+      }, userEmail)
+    );
+    const enrichedTask = enrichTask(created, { id: state.primaryListId, title: getListTitle(state.primaryListId) });
+    dispatch({ type: ACTIONS.ADD_TASK, payload: enrichedTask });
+  }, [accessToken, state.primaryListId, withAuthRetry, getListTitle, userEmail]);
+
+  // Decline a delegated task
+  const declineDelegation = useCallback(async (delegationId) => {
+    if (!accessToken) return;
+    await withAuthRetry((token) => delegationsApi.decline(token, delegationId, userEmail));
+  }, [accessToken, withAuthRetry, userEmail]);
+
+  // Fetch delegation inbox with token refresh (so expired tokens are retried)
+  const getDelegationInbox = useCallback(async () => {
+    if (!accessToken) return [];
+    return withAuthRetry((token) => delegationsApi.getInbox(token, userEmail));
+  }, [accessToken, withAuthRetry, userEmail]);
+
+  // Create delegation (for Layout) with token refresh
+  const createDelegation = useCallback(async (payload) => {
+    if (!accessToken) return;
+    return withAuthRetry((token) => delegationsApi.create(token, payload, userEmail));
+  }, [accessToken, withAuthRetry, userEmail]);
+
   const value = {
     ...state,
     fetchTasks,
@@ -478,9 +640,17 @@ export function TaskProvider({ children }) {
     toggleComplete,
     toggleShowCompleted,
     getTasksByQuadrant,
+    getBacklogTasksByHorizon,
+    getGuardrailWarnings,
+    scheduleTask,
+    splitTask,
     createCategory,
     changeTaskCategory,
     getListTitle,
+    acceptDelegation,
+    declineDelegation,
+    getDelegationInbox,
+    createDelegation,
   };
 
   return <TaskContext.Provider value={value}>{children}</TaskContext.Provider>;

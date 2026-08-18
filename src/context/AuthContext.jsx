@@ -5,9 +5,16 @@ const AuthContext = createContext(null);
 // Google OAuth configuration
 // You'll need to replace this with your own Client ID from Google Cloud Console
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID';
+// Backend needs userinfo to get your email (delegation). You must also add these scopes in
+// Google Cloud Console: APIs & Services → OAuth consent screen → Edit app → Add scope:
+//   - "See your primary Google Account email address" (userinfo.email)
+//   - "See your personal info" (openid, profile) if you use profile
 const SCOPES = [
   'https://www.googleapis.com/auth/tasks',
   'https://www.googleapis.com/auth/tasks.readonly',
+  'openid',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile',
 ].join(' ');
 
 // Timeout for silent refresh attempt on initial load

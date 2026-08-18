@@ -19,7 +19,7 @@ const iconMap = {
   Delete: DeleteIcon,
 };
 
-function Quadrant({ config, onAddTask, onEditTask }) {
+function Quadrant({ config, onAddTask, onEditTask, guardrailWarning }) {
   const { getTasksByQuadrant, toggleShowCompleted, showCompleted, tasks } = useTasks();
   
   const { setNodeRef, isOver } = useDroppable({
@@ -29,7 +29,7 @@ function Quadrant({ config, onAddTask, onEditTask }) {
   const quadrantTasks = getTasksByQuadrant(config.id);
   const activeTasks = quadrantTasks.filter((t) => t.status !== 'completed');
   const completedTasks = quadrantTasks.filter((t) => t.status === 'completed');
-  const allQuadrantTasks = tasks.filter((t) => (t.metadata?.quadrant || 'do') === config.id);
+  const allQuadrantTasks = tasks.filter((t) => t.metadata?.quadrant === config.id && t.metadata?.quadrant);
   const completedCount = allQuadrantTasks.filter((t) => t.status === 'completed').length;
 
   const IconComponent = iconMap[config.icon] || PlayArrowIcon;
@@ -121,6 +121,14 @@ function Quadrant({ config, onAddTask, onEditTask }) {
           </Tooltip>
         </Box>
       </Box>
+
+      {guardrailWarning && (
+        <Box sx={{ px: 2, py: 0.75, bgcolor: alpha('#F9A825', 0.12), borderBottom: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" sx={{ color: '#F57F17', fontWeight: 500 }}>
+            {guardrailWarning}
+          </Typography>
+        </Box>
+      )}
 
       {/* Task List */}
       <Box

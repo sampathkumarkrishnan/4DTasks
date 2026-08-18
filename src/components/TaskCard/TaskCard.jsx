@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -11,10 +11,13 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  Collapse,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditIcon from '@mui/icons-material/Edit';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PersonIcon from '@mui/icons-material/Person';
 import LabelIcon from '@mui/icons-material/Label';
@@ -22,13 +25,20 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import { TIME_HORIZON_CONFIG } from '../../constants/timeHorizon';
 import { useTasks } from '../../context/TaskContext';
 
 dayjs.extend(relativeTime);
 
 function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
-  const { toggleComplete, deleteTask } = useTasks();
+  const { toggleComplete, deleteTask, sentDelegations } = useTasks();
   const [menuAnchor, setMenuAnchor] = useState(null);
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const completeTimerRef = useRef(null);
+  const declinedDelegation = sentDelegations?.find(
+    (d) => d.sourceListId === task.listId && d.sourceTaskId === task.id && d.status === 'declined'
+  );
 
   const {
     attributes,
@@ -45,8 +55,15 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
   };
 
   const isCompleted = task.status === 'completed';
+  const showAsCompleted = isCompleted || isCompleting;
   const dueDate = task.due ? dayjs(task.due) : null;
-  const isOverdue = dueDate && dueDate.isBefore(dayjs(), 'day') && !isCompleted;
+  const isOverdue = dueDate && dueDate.isBefore(dayjs(), 'day') && !showAsCompleted;
+
+  useEffect(() => () => {
+    if (completeTimerRef.current) {
+      window.clearTimeout(completeTimerRef.current);
+    }
+  }, []);
 
   // Stop drag events from triggering on interactive elements
   const stopDragPropagation = (event) => {
@@ -64,7 +81,19 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
 
   const handleToggleComplete = (event) => {
     event.stopPropagation();
-    toggleComplete(task.id);
+    if (isCompleting) return;
+
+    if (isCompleted) {
+      toggleComplete(task.id);
+      return;
+    }
+
+    // Play animation first, then persist — card stays mounted while isCompleting
+    setIsCompleting(true);
+    completeTimerRef.current = window.setTimeout(() => {
+      toggleComplete(task.id);
+      setIsCompleting(false);
+    }, 480);
   };
 
   const handleDelete = async (event) => {
@@ -85,10 +114,13 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
     onEdit?.();
   };
 
-  const handleCardClick = (event) => {
-    // Only trigger if it's a simple click (not a drag)
-    // The drag library handles preventing click during drag
+  const handleCardClick = () => {
     onEdit?.();
+  };
+
+  const handleToggleExpand = (event) => {
+    event.stopPropagation();
+    setExpanded((prev) => !prev);
   };
 
   if (isDragging || isSortableDragging) {
@@ -113,71 +145,105 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
   }
 
   return (
-    <Box
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      onClick={handleCardClick}
-      sx={{
-        p: 1.5,
-        borderRadius: 1.5,
-        bgcolor: 'background.paper',
-        border: '1px solid',
-        borderColor: 'divider',
-        cursor: 'pointer',
-        transition: 'all 0.15s ease',
-        opacity: isCompleted ? 0.6 : 1,
-        '&:hover': {
-          bgcolor: 'action.hover',
-          borderColor: alpha(quadrantColor || '#6B8F71', 0.4),
-          '& .task-actions': {
-            opacity: 1,
-          },
-        },
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-        <Checkbox
-          checked={isCompleted}
-          onChange={handleToggleComplete}
-          onClick={stopDragPropagation}
-          onPointerDown={stopDragPropagation}
-          onMouseDown={stopDragPropagation}
-          onTouchStart={stopDragPropagation}
-          size="small"
-          sx={{
-            p: 0.5,
-            color: 'action.disabled',
-            '&.Mui-checked': {
-              color: 'primary.main',
+    <Box ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <Box
+        sx={{
+          p: expanded ? 1.5 : 1,
+          borderRadius: 1.5,
+          bgcolor: 'background.paper',
+          border: '1px solid',
+          borderColor: 'divider',
+          cursor: 'pointer',
+          transition: 'background-color 0.35s ease, border-color 0.35s ease, opacity 0.35s ease, transform 0.35s ease, box-shadow 0.35s ease, padding 0.2s ease',
+          opacity: showAsCompleted ? 0.55 : 1,
+          transform: isCompleting ? 'scale(0.96)' : 'scale(1)',
+          ...(isCompleting && {
+            bgcolor: alpha(quadrantColor || '#2D9172', 0.22),
+            borderColor: alpha(quadrantColor || '#2D9172', 0.65),
+            boxShadow: `0 0 0 3px ${alpha(quadrantColor || '#2D9172', 0.3)}`,
+          }),
+          '&:hover': {
+            bgcolor: isCompleting ? alpha(quadrantColor || '#2D9172', 0.22) : 'action.hover',
+            borderColor: alpha(quadrantColor || '#6B8F71', 0.4),
+            '& .task-actions': {
+              opacity: 1,
             },
-          }}
-        />
-        
-        <Box sx={{ flex: 1, minWidth: 0 }}>
+          },
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Checkbox
+            checked={showAsCompleted}
+            onChange={handleToggleComplete}
+            onClick={stopDragPropagation}
+            onPointerDown={stopDragPropagation}
+            onMouseDown={stopDragPropagation}
+            onTouchStart={stopDragPropagation}
+            size="small"
+            sx={{
+              p: 0.5,
+              color: 'action.disabled',
+              '@keyframes checkPop': {
+                '0%': { transform: 'scale(1)' },
+                '40%': { transform: 'scale(1.4)' },
+                '100%': { transform: 'scale(1)' },
+              },
+              ...(isCompleting && {
+                animation: 'checkPop 0.45s ease',
+              }),
+              '&.Mui-checked': {
+                color: 'primary.main',
+              },
+              '&:active': {
+                transform: 'scale(0.85)',
+              },
+            }}
+          />
+
           <Typography
             variant="body2"
+            onClick={handleCardClick}
             sx={{
+              flex: 1,
+              minWidth: 0,
               fontWeight: 500,
-              textDecoration: isCompleted ? 'line-through' : 'none',
-              color: isCompleted ? 'text.disabled' : 'text.primary',
-              wordBreak: 'break-word',
+              textDecoration: showAsCompleted ? 'line-through' : 'none',
+              textDecorationColor: showAsCompleted ? alpha(quadrantColor || '#2D9172', 0.5) : 'transparent',
+              color: showAsCompleted ? 'text.disabled' : 'text.primary',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: expanded ? 'normal' : 'nowrap',
+              wordBreak: expanded ? 'break-word' : 'normal',
+              transition: 'color 0.3s ease, text-decoration-color 0.3s ease',
             }}
           >
             {task.cleanTitle || task.title}
           </Typography>
 
-          {/* Meta info row */}
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 0.75,
-              mt: 0.75,
-            }}
+          <IconButton
+            size="small"
+            onClick={handleToggleExpand}
+            onPointerDown={stopDragPropagation}
+            onMouseDown={stopDragPropagation}
+            onTouchStart={stopDragPropagation}
+            aria-label={expanded ? 'Collapse task' : 'Expand task'}
+            sx={{ p: 0.25, flexShrink: 0 }}
           >
+            {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+          </IconButton>
+        </Box>
+
+        <Collapse in={expanded}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mt: 1, pl: 4.5 }}>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 0.75,
+                }}
+              >
             {dueDate && (
               <Tooltip title={dueDate.format('MMMM D, YYYY')}>
                 <Chip
@@ -217,6 +283,35 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
               </Tooltip>
             )}
 
+            {declinedDelegation && (
+              <Tooltip title={`Declined by ${declinedDelegation.toEmail}${declinedDelegation.declinedAt ? ` on ${new Date(declinedDelegation.declinedAt).toLocaleDateString()}` : ''}`}>
+                <Chip
+                  label="Declined"
+                  size="small"
+                  sx={{
+                    height: 22,
+                    fontSize: '0.7rem',
+                    bgcolor: alpha('#d32f2f', 0.2),
+                    color: '#c62828',
+                  }}
+                />
+              </Tooltip>
+            )}
+
+            {task.metadata?.timeHorizon && (
+              <Tooltip title={`Horizon: ${TIME_HORIZON_CONFIG[task.metadata.timeHorizon]?.title || task.metadata.timeHorizon}`}>
+                <Chip
+                  label={TIME_HORIZON_CONFIG[task.metadata.timeHorizon]?.title || task.metadata.timeHorizon}
+                  size="small"
+                  sx={{
+                    height: 22,
+                    fontSize: '0.7rem',
+                    bgcolor: alpha(TIME_HORIZON_CONFIG[task.metadata.timeHorizon]?.color || '#888', 0.2),
+                  }}
+                />
+              </Tooltip>
+            )}
+
             {task.listTitle && (
               <Tooltip title={`List: ${task.listTitle}`}>
                 <Chip
@@ -236,44 +331,45 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
                 />
               </Tooltip>
             )}
-          </Box>
+              </Box>
 
-          {task.displayNotes && (
-            <Typography
-              variant="caption"
-              color="text.secondary"
+              {task.displayNotes && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{
+                    display: 'block',
+                    mt: 0.5,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {task.displayNotes}
+                </Typography>
+              )}
+            </Box>
+
+            <Box
+              className="task-actions"
               sx={{
-                display: 'block',
-                mt: 0.5,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+                opacity: 0,
+                transition: 'opacity 0.15s ease',
               }}
             >
-              {task.displayNotes}
-            </Typography>
-          )}
-        </Box>
-
-        <Box
-          className="task-actions"
-          sx={{
-            opacity: 0,
-            transition: 'opacity 0.15s ease',
-          }}
-        >
-          <IconButton
-            size="small"
-            onClick={handleMenuOpen}
-            onPointerDown={stopDragPropagation}
-            onMouseDown={stopDragPropagation}
-            onTouchStart={stopDragPropagation}
-            sx={{ p: 0.5 }}
-          >
-            <MoreVertIcon fontSize="small" />
-          </IconButton>
-        </Box>
-      </Box>
+              <IconButton
+                size="small"
+                onClick={handleMenuOpen}
+                onPointerDown={stopDragPropagation}
+                onMouseDown={stopDragPropagation}
+                onTouchStart={stopDragPropagation}
+                sx={{ p: 0.5 }}
+              >
+                <MoreVertIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </Box>
+        </Collapse>
 
       <Menu
         anchorEl={menuAnchor}
@@ -297,6 +393,7 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
           <ListItemText>Delete</ListItemText>
         </MenuItem>
       </Menu>
+      </Box>
     </Box>
   );
 }

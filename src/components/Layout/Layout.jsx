@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Box, AppBar, Toolbar, Typography, IconButton, Avatar, Menu, MenuItem, alpha, Snackbar, Alert, Tooltip, useTheme, useMediaQuery, Button } from '@mui/material';
+import { Box, AppBar, Toolbar, Typography, IconButton, Avatar, Menu, MenuItem, alpha, Snackbar, Alert, Tooltip, useTheme, useMediaQuery, Button, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import GridViewIcon from '@mui/icons-material/GridView';
+import ViewKanbanIcon from '@mui/icons-material/ViewKanban';
+import InventoryIcon from '@mui/icons-material/Inventory';
 import LogoutIcon from '@mui/icons-material/Logout';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
@@ -9,11 +11,16 @@ import { DndContext, DragOverlay, pointerWithin, rectIntersection, useSensor, us
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import { useAuth } from '../../context/AuthContext';
 import { useTasks } from '../../context/TaskContext';
+import { delegationsApi, getDelegationIdFromNotes } from '../../services/delegationsApi';
 import { useThemeMode } from '../../context/ThemeContext';
 import Quadrant from '../Quadrant/Quadrant';
 import TaskCard from '../TaskCard/TaskCard';
 import TaskDialog from '../TaskDialog/TaskDialog';
 import MoveDialog from '../TaskDialog/MoveDialog';
+import DelegatedToMe from '../DelegatedToMe/DelegatedToMe';
+import Backlog from '../Backlog/Backlog';
+import ScheduleDialog from '../TaskDialog/ScheduleDialog';
+import SplitDialog from '../TaskDialog/SplitDialog';
 import { getQuadrantConfig } from '../../theme/theme';
 
 // Resize handle component
@@ -53,8 +60,8 @@ function ResizeHandle({ direction = 'horizontal' }) {
 function Layout() {
   const theme = useTheme();
   const { mode, toggleTheme, isDark } = useThemeMode();
-  const { user, logout, needsReauth, login } = useAuth();
-  const { tasks, moveTask, fetchTasks, error, isLoading } = useTasks();
+  const { user, logout, needsReauth, login, accessToken } = useAuth();
+  const { tasks, moveTask, fetchTasks, error, isLoading, createDelegation, getBacklogTasksByHorizon, getGuardrailWarnings, scheduleTask, splitTask } = useTasks();
   
   // Detect mobile screens (less than 768px)
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -76,9 +83,16 @@ function Layout() {
     },
   });
   const sensors = useSensors(mouseSensor, touchSensor);
-  const [taskDialog, setTaskDialog] = useState({ open: false, quadrant: null, task: null });
+  const [view, setView] = useState('execute');
+  const [taskDialog, setTaskDialog] = useState({ open: false, quadrant: null, task: null, captureMode: 'matrix', timeHorizon: null });
+  const [scheduleDialog, setScheduleDialog] = useState({ open: false, task: null });
+  const [splitDialog, setSplitDialog] = useState({ open: false, task: null });
   const [moveDialog, setMoveDialog] = useState({ open: false, task: null, targetQuadrant: null });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+
+  const guardrailWarnings = getGuardrailWarnings();
+  const q1Warning = guardrailWarnings.find((w) => w.id === 'q1-overflow')?.message;
+  const q2Warning = guardrailWarnings.find((w) => w.id === 'q2-composition')?.message;
 
   // Get quadrant config based on current theme mode
   const quadrantConfig = getQuadrantConfig(mode);
@@ -126,8 +140,8 @@ function Layout() {
       }
     }
 
-    const currentQuadrant = task.metadata?.quadrant || 'do';
-
+    const currentQuadrant = task.metadata?.quadrant;
+    if (!currentQuadrant) return;
     if (currentQuadrant === targetQuadrant) return;
 
     // For do/delay quadrants, show date picker
@@ -172,12 +186,60 @@ function Layout() {
     return rectIntersection(args);
   };
 
-  const handleOpenTaskDialog = (quadrant, task = null) => {
-    setTaskDialog({ open: true, quadrant, task });
+  const handleOpenTaskDialog = (quadrant, task = null, options = {}) => {
+    setTaskDialog({
+      open: true,
+      quadrant,
+      task,
+      captureMode: options.captureMode || 'matrix',
+      timeHorizon: options.timeHorizon || null,
+    });
+  };
+
+  const handleOpenBacklogTask = (timeHorizon) => {
+    handleOpenTaskDialog(null, null, { captureMode: 'backlog', timeHorizon });
+  };
+
+  const handleEditBacklogTask = (task) => {
+    handleOpenTaskDialog(null, task, { captureMode: 'backlog' });
   };
 
   const handleCloseTaskDialog = () => {
-    setTaskDialog({ open: false, quadrant: null, task: null });
+    setTaskDialog({ open: false, quadrant: null, task: null, captureMode: 'matrix', timeHorizon: null });
+  };
+
+  const handleSchedule = (task) => {
+    setScheduleDialog({ open: true, task });
+  };
+
+  const handleScheduleConfirm = async (data) => {
+    const { task } = scheduleDialog;
+    try {
+      await scheduleTask(task.id, data);
+      setSnackbar({ open: true, message: 'Task scheduled', severity: 'success' });
+    } catch (err) {
+      setSnackbar({ open: true, message: err.message || 'Failed to schedule', severity: 'error' });
+    }
+    setScheduleDialog({ open: false, task: null });
+  };
+
+  const handleSplit = (task) => {
+    setSplitDialog({ open: true, task });
+  };
+
+  const handleSplitConfirm = async (childTitles) => {
+    const { task } = splitDialog;
+    try {
+      const created = await splitTask(task, childTitles);
+      setSnackbar({
+        open: true,
+        message: `Created ${created.length} tactical task${created.length !== 1 ? 's' : ''}`,
+        severity: 'success',
+      });
+    } catch (err) {
+      setSnackbar({ open: true, message: err.message || 'Failed to split', severity: 'error' });
+    }
+    setSplitDialog({ open: false, task: null });
   };
 
   const handleCloseMoveDialog = () => {
@@ -188,11 +250,40 @@ function Layout() {
     const { task, targetQuadrant } = moveDialog;
     try {
       await moveTask(task.id, targetQuadrant, additionalData);
-      setSnackbar({
-        open: true,
-        message: `Task moved to ${quadrantConfig[targetQuadrant].title}`,
-        severity: 'success',
-      });
+      if (targetQuadrant === 'delegate' && additionalData.delegatedTo && accessToken) {
+        try {
+          const taskPayload = {
+            title: task.cleanTitle || task.title || 'Untitled',
+            notes: task.displayNotes || task.notes || '',
+            due: task.due || null,
+            listTitle: task.listTitle || null,
+          };
+          const sourceDelegationId = getDelegationIdFromNotes(task.notes);
+          await createDelegation({
+            taskPayload,
+            toEmail: additionalData.delegatedTo,
+            sourceListId: task.listId,
+            sourceTaskId: task.id,
+            ...(sourceDelegationId && { sourceDelegationId }),
+          });
+          setSnackbar({
+            open: true,
+            message: `Invitation sent to ${additionalData.delegatedTo}`,
+            severity: 'success',
+          });
+        } catch (delegErr) {
+          const msg = delegErr?.status === 400
+            ? (delegErr?.message || 'Cannot delegate to that person (would create a cycle).')
+            : `Failed to send invitation: ${delegErr?.message || 'Unknown error'}`;
+          setSnackbar({ open: true, message: msg, severity: 'error' });
+        }
+      } else {
+        setSnackbar({
+          open: true,
+          message: `Task moved to ${quadrantConfig[targetQuadrant].title}`,
+          severity: 'success',
+        });
+      }
     } catch (error) {
       console.error('Move task failed:', error);
       setSnackbar({
@@ -234,10 +325,28 @@ function Layout() {
       >
         <Toolbar>
           <GridViewIcon sx={{ mr: 1.5, color: 'primary.main' }} />
-          <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 600, color: 'text.primary' }}>
+          <Typography variant="h6" sx={{ fontWeight: 600, color: 'text.primary', mr: 2 }}>
             4D Matrix
           </Typography>
+
+          <ToggleButtonGroup
+            value={view}
+            exclusive
+            onChange={(_, newView) => newView && setView(newView)}
+            size="small"
+            sx={{ mr: 'auto' }}
+          >
+            <ToggleButton value="execute">
+              <ViewKanbanIcon sx={{ fontSize: 18, mr: 0.75 }} />
+              Execute
+            </ToggleButton>
+            <ToggleButton value="backlog">
+              <InventoryIcon sx={{ fontSize: 18, mr: 0.75 }} />
+              Backlog
+            </ToggleButton>
+          </ToggleButtonGroup>
           
+          <Box sx={{ flexGrow: 1 }} />
           <Tooltip title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
             <IconButton onClick={toggleTheme} sx={{ mr: 0.5 }}>
               {isDark ? <LightModeIcon /> : <DarkModeIcon />}
@@ -318,7 +427,16 @@ function Layout() {
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        {isMobile ? (
+        <DelegatedToMe />
+        {view === 'backlog' ? (
+          <Backlog
+            getBacklogTasksByHorizon={getBacklogTasksByHorizon}
+            onAddTask={handleOpenBacklogTask}
+            onEditTask={handleEditBacklogTask}
+            onSchedule={handleSchedule}
+            onSplit={handleSplit}
+          />
+        ) : isMobile ? (
           /* Mobile Layout - Vertical Stack */
           <Box sx={{ flex: 1, overflow: 'auto' }}>
             <Box sx={{ minHeight: '40vh' }}>
@@ -326,6 +444,7 @@ function Layout() {
                 config={quadrantConfig.do}
                 onAddTask={() => handleOpenTaskDialog('do')}
                 onEditTask={(task) => handleOpenTaskDialog('do', task)}
+                guardrailWarning={q1Warning}
               />
             </Box>
             <Box sx={{ minHeight: '40vh' }}>
@@ -340,6 +459,7 @@ function Layout() {
                 config={quadrantConfig.delay}
                 onAddTask={() => handleOpenTaskDialog('delay')}
                 onEditTask={(task) => handleOpenTaskDialog('delay', task)}
+                guardrailWarning={q2Warning}
               />
             </Box>
             <Box sx={{ minHeight: '40vh' }}>
@@ -362,6 +482,7 @@ function Layout() {
                       config={quadrantConfig.do}
                       onAddTask={() => handleOpenTaskDialog('do')}
                       onEditTask={(task) => handleOpenTaskDialog('do', task)}
+                      guardrailWarning={q1Warning}
                     />
                   </Panel>
                   <ResizeHandle direction="horizontal" />
@@ -385,6 +506,7 @@ function Layout() {
                       config={quadrantConfig.delay}
                       onAddTask={() => handleOpenTaskDialog('delay')}
                       onEditTask={(task) => handleOpenTaskDialog('delay', task)}
+                      guardrailWarning={q2Warning}
                     />
                   </Panel>
                   <ResizeHandle direction="horizontal" />
@@ -414,9 +536,25 @@ function Layout() {
         onClose={handleCloseTaskDialog}
         quadrant={taskDialog.quadrant}
         task={taskDialog.task}
+        captureMode={taskDialog.captureMode}
+        timeHorizon={taskDialog.timeHorizon}
         onSuccess={(message) => {
           setSnackbar({ open: true, message, severity: 'success' });
         }}
+      />
+
+      <ScheduleDialog
+        open={scheduleDialog.open}
+        onClose={() => setScheduleDialog({ open: false, task: null })}
+        task={scheduleDialog.task}
+        onConfirm={handleScheduleConfirm}
+      />
+
+      <SplitDialog
+        open={splitDialog.open}
+        onClose={() => setSplitDialog({ open: false, task: null })}
+        task={splitDialog.task}
+        onConfirm={handleSplitConfirm}
       />
 
       {/* Move Task Dialog */}

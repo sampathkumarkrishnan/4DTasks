@@ -1,0 +1,32 @@
+services:
+  backend:
+    build:
+      context: ./server
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      FRONTEND_ORIGIN: http://localhost:5173
+      DB_PATH: /app/data/delegations.db
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+      - ./data:/app/data
+    command: npm run dev
+
+  frontend:
+    build:
+      context: .
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:3001
+      VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+      DOCKER_CONTAINER: "true"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/server
+    depends_on:
+      - backend
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
