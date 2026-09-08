@@ -24,7 +24,8 @@ import { useTasks } from '../../context/TaskContext';
 // Renders a single subtask row with inline title editing, due-date chip (with
 // date-picker popover), and a hover-reveal delete button.
 // Checkbox is rendered but disabled — wired in Ticket 3 (cascade).
-function SubtaskRow({ subtask, parentTaskId }) {
+// showCompletion: set to false in views where task-level completion is not available (e.g. Backlog)
+function SubtaskRow({ subtask, parentTaskId, showCompletion = true }) {
   const { updateSubtask, deleteSubtask, toggleSubtaskComplete } = useTasks();
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -121,19 +122,21 @@ function SubtaskRow({ subtask, parentTaskId }) {
         '&:hover .subtask-action': { opacity: 1 },
       }}
     >
-      {/* Completion checkbox — triggers bi-directional cascade (ADR 0004) */}
-      <Checkbox
-        checked={isCompleted}
-        onChange={handleToggleComplete}
-        size="small"
-        sx={{
-          p: 0.25,
-          flexShrink: 0,
-          color: 'action.disabled',
-          '&.Mui-checked': { color: 'primary.main' },
-        }}
-        onClick={(e) => e.stopPropagation()}
-      />
+      {/* Completion checkbox — hidden in views without completion (e.g. Backlog) */}
+      {showCompletion && (
+        <Checkbox
+          checked={isCompleted}
+          onChange={handleToggleComplete}
+          size="small"
+          sx={{
+            p: 0.25,
+            flexShrink: 0,
+            color: 'action.disabled',
+            '&.Mui-checked': { color: 'primary.main' },
+          }}
+          onClick={(e) => e.stopPropagation()}
+        />
+      )}
 
       {/* Title — click to inline-edit */}
       {isEditingTitle ? (
@@ -255,7 +258,7 @@ function SubtaskRow({ subtask, parentTaskId }) {
 // Standalone accordion rendered at the bottom of TaskCard and BacklogCard.
 // Shows progress badge (X/Y) in its header; expands to show subtask list and
 // an inline "Add subtask" input row.
-function SubtaskAccordion({ task }) {
+function SubtaskAccordion({ task, showCompletion = true }) {
   const { addSubtask } = useTasks();
 
   const [expanded, setExpanded] = useState(false);
@@ -365,7 +368,12 @@ function SubtaskAccordion({ task }) {
       <Collapse in={expanded}>
         <Box sx={{ pl: 0.5, pt: 0.25 }}>
           {subtasks.map((subtask) => (
-            <SubtaskRow key={subtask.id} subtask={subtask} parentTaskId={task.id} />
+            <SubtaskRow
+              key={subtask.id}
+              subtask={subtask}
+              parentTaskId={task.id}
+              showCompletion={showCompletion}
+            />
           ))}
 
           {/* Add subtask row */}

@@ -19,6 +19,7 @@ import LabelIcon from '@mui/icons-material/Label';
 import { TIME_HORIZON_CONFIG, TIME_HORIZON_ORDER } from '../../constants/timeHorizon';
 import { isScheduledFuture } from '../../utils/taskFilters';
 import { useTasks } from '../../context/TaskContext';
+import SubtaskAccordion from '../SubtaskAccordion/SubtaskAccordion';
 import dayjs from 'dayjs';
 
 function BacklogCard({ task, horizonColor, onEdit, onSchedule, onSplit }) {
@@ -26,6 +27,14 @@ function BacklogCard({ task, horizonColor, onEdit, onSchedule, onSplit }) {
   const [expanded, setExpanded] = useState(false);
   const isStrategic = task.metadata?.timeHorizon === 'strategic';
   const scheduled = isScheduledFuture(task);
+
+  // Subtask progress badge
+  const subtasks = task.subtasks || [];
+  const subtaskTotal = subtasks.length;
+  const subtaskDone = subtasks.filter((s) => s.status === 'completed').length;
+  const subtaskOverdue = subtasks.some(
+    (s) => s.status !== 'completed' && s.due && dayjs(s.due).isBefore(dayjs(), 'day')
+  );
 
   const handleDelete = async (e) => {
     e.stopPropagation();
@@ -74,6 +83,25 @@ function BacklogCard({ task, horizonColor, onEdit, onSchedule, onSplit }) {
         >
           {task.cleanTitle || task.title}
         </Typography>
+        {/* Subtask progress badge */}
+        {subtaskTotal > 0 && (
+          <Tooltip title={`${subtaskDone} of ${subtaskTotal} subtasks complete`}>
+            <Chip
+              label={`${subtaskDone}/${subtaskTotal}`}
+              size="small"
+              sx={{
+                height: 16,
+                fontSize: '0.65rem',
+                flexShrink: 0,
+                bgcolor: subtaskOverdue ? alpha('#F44336', 0.15) : alpha(horizonColor, 0.15),
+                color: subtaskOverdue ? 'error.main' : 'text.secondary',
+                '& .MuiChip-label': { px: 0.75 },
+                cursor: 'default',
+              }}
+            />
+          </Tooltip>
+        )}
+
         <IconButton
           size="small"
           onClick={handleToggleExpand}
@@ -145,6 +173,9 @@ function BacklogCard({ task, horizonColor, onEdit, onSchedule, onSplit }) {
           </Box>
         </Box>
       </Collapse>
+
+      {/* SubtaskAccordion — no completion checkboxes in Backlog view */}
+      <SubtaskAccordion task={task} showCompletion={false} />
     </Box>
   );
 }
