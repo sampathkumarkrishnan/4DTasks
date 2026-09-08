@@ -406,6 +406,9 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
               </IconButton>
             </Box>
           </Box>
+
+          {/* Subtask accordion — only visible when card is expanded */}
+          <SubtaskAccordion task={task} />
         </Collapse>
 
       <Menu
@@ -431,8 +434,6 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
         </MenuItem>
       </Menu>
 
-      {/* SubtaskAccordion — always rendered so user can add the first subtask */}
-      <SubtaskAccordion task={task} />
       </Box>
 
       {/* Cascade failure toast — shown when some subtask PATCHes fail (best-effort, ADR 0004) */}

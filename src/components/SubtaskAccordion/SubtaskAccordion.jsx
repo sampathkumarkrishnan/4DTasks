@@ -261,7 +261,8 @@ function SubtaskRow({ subtask, parentTaskId, showCompletion = true }) {
 function SubtaskAccordion({ task, showCompletion = true }) {
   const { addSubtask } = useTasks();
 
-  const [expanded, setExpanded] = useState(false);
+  // Start expanded when the task already has subtasks so they're visible immediately
+  const [expanded, setExpanded] = useState(() => (task.subtasks || []).length > 0);
   const [isAddingMode, setIsAddingMode] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const addInputRef = useRef(null);

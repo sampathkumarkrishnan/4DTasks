@@ -171,11 +171,11 @@ function BacklogCard({ task, horizonColor, onEdit, onSchedule, onSplit }) {
               </IconButton>
             </Tooltip>
           </Box>
+
+          {/* Subtask accordion — only visible when card is expanded */}
+          <SubtaskAccordion task={task} showCompletion={false} />
         </Box>
       </Collapse>
-
-      {/* SubtaskAccordion — no completion checkboxes in Backlog view */}
-      <SubtaskAccordion task={task} showCompletion={false} />
     </Box>
   );
 }
