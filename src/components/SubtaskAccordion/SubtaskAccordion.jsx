@@ -25,7 +25,7 @@ import { useTasks } from '../../context/TaskContext';
 // date-picker popover), and a hover-reveal delete button.
 // Checkbox is rendered but disabled — wired in Ticket 3 (cascade).
 function SubtaskRow({ subtask, parentTaskId }) {
-  const { updateSubtask, deleteSubtask } = useTasks();
+  const { updateSubtask, deleteSubtask, toggleSubtaskComplete } = useTasks();
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitle, setEditTitle] = useState(subtask.cleanTitle || subtask.title || '');
@@ -35,6 +35,15 @@ function SubtaskRow({ subtask, parentTaskId }) {
   const isCompleted = subtask.status === 'completed';
   const due = subtask.due ? dayjs(subtask.due) : null;
   const isOverdue = due && due.isBefore(dayjs(), 'day') && !isCompleted;
+
+  // ── Completion toggle ──────────────────────────────────────────────────────
+
+  const handleToggleComplete = async (e) => {
+    e.stopPropagation();
+    try {
+      await toggleSubtaskComplete(parentTaskId, subtask.id);
+    } catch {}
+  };
 
   // ── Title editing ──────────────────────────────────────────────────────────
 
@@ -112,12 +121,17 @@ function SubtaskRow({ subtask, parentTaskId }) {
         '&:hover .subtask-action': { opacity: 1 },
       }}
     >
-      {/* Checkbox — display only; cascade wired in Ticket 3 */}
+      {/* Completion checkbox — triggers bi-directional cascade (ADR 0004) */}
       <Checkbox
         checked={isCompleted}
-        disabled
+        onChange={handleToggleComplete}
         size="small"
-        sx={{ p: 0.25, flexShrink: 0, color: 'action.disabled' }}
+        sx={{
+          p: 0.25,
+          flexShrink: 0,
+          color: 'action.disabled',
+          '&.Mui-checked': { color: 'primary.main' },
+        }}
         onClick={(e) => e.stopPropagation()}
       />
 

@@ -12,6 +12,8 @@ import {
   ListItemIcon,
   ListItemText,
   Collapse,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -36,6 +38,7 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [isCompleting, setIsCompleting] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [cascadeFailureCount, setCascadeFailureCount] = useState(0);
   const completeTimerRef = useRef(null);
   const declinedDelegation = sentDelegations?.find(
     (d) => d.sourceListId === task.listId && d.sourceTaskId === task.id && d.status === 'declined'
@@ -99,9 +102,12 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
 
     // Play animation first, then persist — card stays mounted while isCompleting
     setIsCompleting(true);
-    completeTimerRef.current = window.setTimeout(() => {
-      toggleComplete(task.id);
+    completeTimerRef.current = window.setTimeout(async () => {
+      const result = await toggleComplete(task.id);
       setIsCompleting(false);
+      if (result?.failureCount > 0) {
+        setCascadeFailureCount(result.failureCount);
+      }
     }, 480);
   };
 
@@ -428,6 +434,22 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
       {/* SubtaskAccordion — always rendered so user can add the first subtask */}
       <SubtaskAccordion task={task} />
       </Box>
+
+      {/* Cascade failure toast — shown when some subtask PATCHes fail (best-effort, ADR 0004) */}
+      <Snackbar
+        open={cascadeFailureCount > 0}
+        autoHideDuration={4000}
+        onClose={() => setCascadeFailureCount(0)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          severity="warning"
+          onClose={() => setCascadeFailureCount(0)}
+          sx={{ width: '100%' }}
+        >
+          {cascadeFailureCount} subtask{cascadeFailureCount > 1 ? 's' : ''} couldn&apos;t be marked complete
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

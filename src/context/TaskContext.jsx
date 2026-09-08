@@ -565,24 +565,100 @@ export function TaskProvider({ children }) {
     }
   }, [accessToken, state.tasks, withAuthRetry]);
 
-  // Toggle task completion
+  // Toggle task completion.
+  // When completing a parent that has subtasks, cascades completion to all
+  // incomplete subtasks in parallel (best-effort per ADR 0004).
+  // Returns { failureCount } so callers can surface a warning toast.
   const toggleComplete = useCallback(async (taskId) => {
     const task = state.tasks.find((t) => t.id === taskId);
-    if (!task) return;
-    
+    if (!task) return { failureCount: 0 };
+
     const newStatus = task.status === 'completed' ? 'needsAction' : 'completed';
     await updateTask(taskId, { status: newStatus });
-    if (newStatus === 'completed' && accessToken) {
-      const delegationId = getDelegationIdFromNotes(task.notes);
-      if (delegationId) {
-        try {
-          await withAuthRetry((token) => delegationsApi.complete(token, delegationId, userEmail));
-        } catch (e) {
-          console.warn('Failed to notify delegation complete:', e);
+
+    let failureCount = 0;
+
+    if (newStatus === 'completed') {
+      // Cascade: PATCH all incomplete subtasks to completed in parallel (best-effort)
+      const incompleteSubtasks = (task.subtasks || []).filter((s) => s.status !== 'completed');
+      if (incompleteSubtasks.length > 0) {
+        const results = await Promise.allSettled(
+          incompleteSubtasks.map(async (st) => {
+            await withAuthRetry((token) =>
+              tasksApi.update(token, task.listId, st.id, { status: 'completed' })
+            );
+            dispatch({
+              type: ACTIONS.UPDATE_SUBTASK,
+              payload: { parentId: taskId, subtaskId: st.id, updates: { status: 'completed' } },
+            });
+          })
+        );
+        failureCount = results.filter((r) => r.status === 'rejected').length;
+      }
+
+      // Delegation notification (unchanged from original)
+      if (accessToken) {
+        const delegationId = getDelegationIdFromNotes(task.notes);
+        if (delegationId) {
+          try {
+            await withAuthRetry((token) => delegationsApi.complete(token, delegationId, userEmail));
+          } catch (e) {
+            console.warn('Failed to notify delegation complete:', e);
+          }
         }
       }
     }
-  }, [state.tasks, updateTask, accessToken, withAuthRetry]);
+
+    return { failureCount };
+  }, [state.tasks, updateTask, accessToken, withAuthRetry, userEmail]);
+
+  // Toggle a single subtask's completion status.
+  // Completing the last incomplete subtask auto-completes the parent.
+  // Un-completing any subtask on a completed parent auto-reopens the parent.
+  const toggleSubtaskComplete = useCallback(async (parentTaskId, subtaskId) => {
+    const parentTask = state.tasks.find((t) => t.id === parentTaskId);
+    if (!parentTask) return;
+
+    const subtask = (parentTask.subtasks || []).find((st) => st.id === subtaskId);
+    if (!subtask) return;
+
+    const newStatus = subtask.status === 'completed' ? 'needsAction' : 'completed';
+
+    // Optimistic update
+    dispatch({
+      type: ACTIONS.UPDATE_SUBTASK,
+      payload: { parentId: parentTaskId, subtaskId, updates: { status: newStatus } },
+    });
+
+    try {
+      await withAuthRetry((token) =>
+        tasksApi.update(token, parentTask.listId, subtaskId, { status: newStatus })
+      );
+
+      if (newStatus === 'completed') {
+        // Check if this was the last incomplete subtask → complete parent
+        const remainingIncomplete = (parentTask.subtasks || []).filter(
+          (st) => st.id !== subtaskId && st.status !== 'completed'
+        );
+        if (remainingIncomplete.length === 0 && parentTask.status !== 'completed') {
+          await updateTask(parentTaskId, { status: 'completed' });
+        }
+      } else {
+        // Un-completing: reopen parent if it was completed
+        if (parentTask.status === 'completed') {
+          await updateTask(parentTaskId, { status: 'needsAction' });
+        }
+      }
+    } catch (error) {
+      // Revert subtask status on failure
+      dispatch({
+        type: ACTIONS.UPDATE_SUBTASK,
+        payload: { parentId: parentTaskId, subtaskId, updates: { status: subtask.status } },
+      });
+      dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
+      throw error;
+    }
+  }, [state.tasks, updateTask, withAuthRetry]);
 
   // Toggle show completed for a quadrant
   const toggleShowCompleted = useCallback((quadrant) => {
@@ -825,6 +901,7 @@ export function TaskProvider({ children }) {
     addSubtask,
     updateSubtask,
     deleteSubtask,
+    toggleSubtaskComplete,
   };
 
   return <TaskContext.Provider value={value}>{children}</TaskContext.Provider>;
