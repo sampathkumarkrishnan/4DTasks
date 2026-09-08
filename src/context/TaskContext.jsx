@@ -27,6 +27,19 @@ function enrichTask(task, list) {
   };
 }
 
+// Lighter enrichment for Subtasks — no quadrant/time-horizon metadata parsing.
+// Subtasks carry only title, due date, and status; no EISENHOWER_META block.
+function enrichSubtask(task, list) {
+  return {
+    ...task,
+    listId: list.id,
+    listTitle: list.title,
+    cleanTitle: task.title || '',
+    displayNotes: task.notes || '',
+    subtasks: [], // Subtasks cannot have their own subtasks (one level only)
+  };
+}
+
 // Action types
 const ACTIONS = {
   SET_LOADING: 'SET_LOADING',
@@ -212,8 +225,11 @@ export function TaskProvider({ children }) {
       const tasksPromises = lists.map(async (list) => {
         try {
           const tasks = await withAuthRetry((token) => tasksApi.getAll(token, list.id, true, true));
-          // Enrich each task with list info and parsed metadata
-          return tasks.map((task) => enrichTask(task, list));
+          // Subtasks (tasks with a `parent` field) get lighter enrichment — no metadata parsing.
+          // Top-level tasks get full enrichment including quadrant/time-horizon metadata.
+          return tasks.map((task) =>
+            task.parent ? enrichSubtask(task, list) : enrichTask(task, list)
+          );
         } catch (error) {
           // Re-throw authentication errors to be handled at top level
           if (error instanceof AuthenticationError) {
@@ -225,10 +241,39 @@ export function TaskProvider({ children }) {
       });
       
       const tasksArrays = await Promise.all(tasksPromises);
-      const allTasks = tasksArrays.flat();
-      
-      dispatch({ type: ACTIONS.SET_TASKS, payload: allTasks });
-      syncSentDelegations(allTasks);
+      const allEnrichedTasks = tasksArrays.flat();
+
+      // Group subtasks under their parent tasks.
+      // Subtasks come back flat from Google Tasks API with a `parent` field set.
+      // We attach them to parent.subtasks and exclude them from the top-level list.
+      const taskMap = new Map();
+      const topLevelTasks = [];
+
+      // First pass: index top-level tasks and initialise their subtasks array
+      for (const task of allEnrichedTasks) {
+        if (!task.parent) {
+          if (!task.subtasks) task.subtasks = [];
+          taskMap.set(task.id, task);
+          topLevelTasks.push(task);
+        }
+      }
+
+      // Second pass: attach subtasks to parents; orphans surface as top-level tasks
+      for (const task of allEnrichedTasks) {
+        if (task.parent) {
+          const parentTask = taskMap.get(task.parent);
+          if (parentTask) {
+            parentTask.subtasks.push(task);
+          } else {
+            // Parent not found (e.g. beyond the 100-task fetch limit) — treat as top-level
+            console.warn(`Subtask ${task.id} has no matching parent ${task.parent} — surfacing as top-level`);
+            topLevelTasks.push(task);
+          }
+        }
+      }
+
+      dispatch({ type: ACTIONS.SET_TASKS, payload: topLevelTasks });
+      syncSentDelegations(topLevelTasks);
     } catch (error) {
       // Handle 401 authentication errors by marking re-auth needed
       if (error instanceof AuthenticationError) {

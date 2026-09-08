@@ -2,6 +2,7 @@ import dayjs from 'dayjs';
 import { titlePrefix } from '../services/googleTasksApi';
 
 export function isOnMatrix(task) {
+  if (task?.parent) return false; // Subtasks never appear as top-level matrix cards
   if (!task?.due) return false;
   if (!titlePrefix.hasPrefix(task.title)) return false;
   const due = dayjs(task.due).startOf('day');
@@ -10,6 +11,7 @@ export function isOnMatrix(task) {
 }
 
 export function isInBacklog(task) {
+  if (task?.parent) return false; // Subtasks never appear as top-level backlog cards
   if (task?.status === 'completed') return false;
   return !isOnMatrix(task);
 }
