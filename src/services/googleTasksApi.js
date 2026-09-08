@@ -97,6 +97,15 @@ export const tasksApi = {
     });
   },
 
+  // Create a subtask under a parent task (uses Google Tasks ?parent= query param)
+  async createSubtask(accessToken, listId, parentTaskId, subtask) {
+    const params = new URLSearchParams({ parent: parentTaskId });
+    return apiRequest(`/lists/${listId}/tasks?${params}`, accessToken, {
+      method: 'POST',
+      body: JSON.stringify(subtask),
+    });
+  },
+
   // Update a task
   async update(accessToken, listId, taskId, updates) {
     return apiRequest(`/lists/${listId}/tasks/${taskId}`, accessToken, {

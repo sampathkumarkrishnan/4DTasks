@@ -53,6 +53,10 @@ const ACTIONS = {
   SET_SHOW_COMPLETED: 'SET_SHOW_COMPLETED',
   SET_PRIMARY_LIST: 'SET_PRIMARY_LIST',
   SET_SENT_DELEGATIONS: 'SET_SENT_DELEGATIONS',
+  // Subtask actions (nested within parent task's .subtasks array)
+  ADD_SUBTASK: 'ADD_SUBTASK',
+  UPDATE_SUBTASK: 'UPDATE_SUBTASK',
+  REMOVE_SUBTASK: 'REMOVE_SUBTASK',
 };
 
 const initialState = {
@@ -118,7 +122,44 @@ function taskReducer(state, action) {
     
     case ACTIONS.SET_SENT_DELEGATIONS:
       return { ...state, sentDelegations: action.payload };
-    
+
+    case ACTIONS.ADD_SUBTASK:
+      return {
+        ...state,
+        tasks: state.tasks.map((task) =>
+          task.id === action.payload.parentId
+            ? { ...task, subtasks: [...(task.subtasks || []), action.payload.subtask] }
+            : task
+        ),
+      };
+
+    case ACTIONS.UPDATE_SUBTASK:
+      return {
+        ...state,
+        tasks: state.tasks.map((task) =>
+          task.id === action.payload.parentId
+            ? {
+                ...task,
+                subtasks: (task.subtasks || []).map((st) =>
+                  st.id === action.payload.subtaskId
+                    ? { ...st, ...action.payload.updates }
+                    : st
+                ),
+              }
+            : task
+        ),
+      };
+
+    case ACTIONS.REMOVE_SUBTASK:
+      return {
+        ...state,
+        tasks: state.tasks.map((task) =>
+          task.id === action.payload.parentId
+            ? { ...task, subtasks: (task.subtasks || []).filter((st) => st.id !== action.payload.subtaskId) }
+            : task
+        ),
+      };
+
     default:
       return state;
   }
@@ -623,6 +664,90 @@ export function TaskProvider({ children }) {
     return created;
   }, [createTask]);
 
+  // ── Subtask CRUD ────────────────────────────────────────────────────────────
+
+  // Add a subtask to a parent task.
+  // If the parent is already completed, reopens it before creating the subtask.
+  const addSubtask = useCallback(async (parentTaskId, { title, due }) => {
+    if (!accessToken) return;
+
+    const parentTask = state.tasks.find((t) => t.id === parentTaskId);
+    if (!parentTask?.listId) return;
+
+    const subtaskPayload = { title: title.trim(), status: 'needsAction' };
+    if (due) subtaskPayload.due = due;
+
+    try {
+      // Reopen completed parent before adding a subtask (spec: adding subtask reopens parent)
+      if (parentTask.status === 'completed') {
+        await updateTask(parentTaskId, { status: 'needsAction' });
+      }
+
+      const newSubtask = await withAuthRetry((token) =>
+        tasksApi.createSubtask(token, parentTask.listId, parentTaskId, subtaskPayload)
+      );
+
+      const enriched = enrichSubtask(newSubtask, { id: parentTask.listId, title: parentTask.listTitle });
+      dispatch({ type: ACTIONS.ADD_SUBTASK, payload: { parentId: parentTaskId, subtask: enriched } });
+      return enriched;
+    } catch (error) {
+      dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
+      throw error;
+    }
+  }, [accessToken, state.tasks, updateTask, withAuthRetry]);
+
+  // Update a subtask's title and/or due date.
+  const updateSubtask = useCallback(async (parentTaskId, subtaskId, updates) => {
+    if (!accessToken) return;
+
+    const parentTask = state.tasks.find((t) => t.id === parentTaskId);
+    if (!parentTask) return;
+
+    const originalSubtask = (parentTask.subtasks || []).find((st) => st.id === subtaskId);
+    if (!originalSubtask) return;
+
+    // Optimistic update
+    dispatch({ type: ACTIONS.UPDATE_SUBTASK, payload: { parentId: parentTaskId, subtaskId, updates } });
+
+    try {
+      await withAuthRetry((token) =>
+        tasksApi.update(token, parentTask.listId, subtaskId, updates)
+      );
+    } catch (error) {
+      // Revert to original subtask data
+      dispatch({ type: ACTIONS.UPDATE_SUBTASK, payload: { parentId: parentTaskId, subtaskId, updates: originalSubtask } });
+      dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
+      throw error;
+    }
+  }, [accessToken, state.tasks, withAuthRetry]);
+
+  // Delete a subtask. Optimistic removal with revert on failure.
+  const deleteSubtask = useCallback(async (parentTaskId, subtaskId) => {
+    if (!accessToken) return;
+
+    const parentTask = state.tasks.find((t) => t.id === parentTaskId);
+    if (!parentTask) return;
+
+    const originalSubtask = (parentTask.subtasks || []).find((st) => st.id === subtaskId);
+    if (!originalSubtask) return;
+
+    // Optimistic remove
+    dispatch({ type: ACTIONS.REMOVE_SUBTASK, payload: { parentId: parentTaskId, subtaskId } });
+
+    try {
+      await withAuthRetry((token) =>
+        tasksApi.delete(token, parentTask.listId, subtaskId)
+      );
+    } catch (error) {
+      // Revert
+      dispatch({ type: ACTIONS.ADD_SUBTASK, payload: { parentId: parentTaskId, subtask: originalSubtask } });
+      dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
+      throw error;
+    }
+  }, [accessToken, state.tasks, withAuthRetry]);
+
+  // ── End subtask CRUD ─────────────────────────────────────────────────────────
+
   // Create a category (new task list)
   const createCategory = useCallback(async (name) => {
     if (!accessToken) return;
@@ -696,6 +821,10 @@ export function TaskProvider({ children }) {
     declineDelegation,
     getDelegationInbox,
     createDelegation,
+    // Subtask CRUD
+    addSubtask,
+    updateSubtask,
+    deleteSubtask,
   };
 
   return <TaskContext.Provider value={value}>{children}</TaskContext.Provider>;

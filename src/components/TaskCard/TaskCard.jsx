@@ -27,6 +27,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { TIME_HORIZON_CONFIG } from '../../constants/timeHorizon';
 import { useTasks } from '../../context/TaskContext';
+import SubtaskAccordion from '../SubtaskAccordion/SubtaskAccordion';
 
 dayjs.extend(relativeTime);
 
@@ -58,6 +59,14 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
   const showAsCompleted = isCompleted || isCompleting;
   const dueDate = task.due ? dayjs(task.due) : null;
   const isOverdue = dueDate && dueDate.isBefore(dayjs(), 'day') && !showAsCompleted;
+
+  // Subtask progress badge data
+  const subtasks = task.subtasks || [];
+  const subtaskTotal = subtasks.length;
+  const subtaskDone = subtasks.filter((s) => s.status === 'completed').length;
+  const subtaskOverdue = subtasks.some(
+    (s) => s.status !== 'completed' && s.due && dayjs(s.due).isBefore(dayjs(), 'day')
+  );
 
   useEffect(() => () => {
     if (completeTimerRef.current) {
@@ -219,6 +228,28 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
           >
             {task.cleanTitle || task.title}
           </Typography>
+
+          {/* Subtask progress badge — visible in collapsed and expanded states */}
+          {subtaskTotal > 0 && (
+            <Tooltip title={`${subtaskDone} of ${subtaskTotal} subtasks complete`}>
+              <Chip
+                label={`${subtaskDone}/${subtaskTotal}`}
+                size="small"
+                onClick={(e) => { e.stopPropagation(); }}
+                onPointerDown={stopDragPropagation}
+                onMouseDown={stopDragPropagation}
+                sx={{
+                  height: 16,
+                  fontSize: '0.65rem',
+                  flexShrink: 0,
+                  bgcolor: subtaskOverdue ? alpha('#F44336', 0.15) : alpha(quadrantColor || '#6B8F71', 0.15),
+                  color: subtaskOverdue ? 'error.main' : 'text.secondary',
+                  '& .MuiChip-label': { px: 0.75 },
+                  cursor: 'default',
+                }}
+              />
+            </Tooltip>
+          )}
 
           <IconButton
             size="small"
@@ -393,6 +424,9 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
           <ListItemText>Delete</ListItemText>
         </MenuItem>
       </Menu>
+
+      {/* SubtaskAccordion — always rendered so user can add the first subtask */}
+      <SubtaskAccordion task={task} />
       </Box>
     </Box>
   );
