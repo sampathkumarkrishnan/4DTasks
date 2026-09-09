@@ -1,35 +1,34 @@
 import { createTheme, alpha } from '@mui/material/styles';
 
-// Quadrant colors - jewel-toned, balanced saturation for light and dark modes
+// Quadrant colors — semantically distinct hue families, WCAG-AA-ready in both modes.
+// DO = Teal (action, forward motion)
+// DELEGATE = Indigo (collaboration, hand-off)
+// DELAY = Amber (consideration, scheduling)
+// DELETE = Slate (neutral, deprioritized — intentionally low energy)
 const quadrantColors = {
   do: {
-    dark: '#48C99A',
-    light: '#2D9172',
+    dark: '#2A9D8F',
+    light: '#1E7D70',
   },
   delegate: {
-    dark: '#8898EE',
-    light: '#5268C4',
+    dark: '#7B6CF6',
+    light: '#5E52D4',
   },
   delay: {
-    dark: '#D9AD54',
-    light: '#B8842A',
+    dark: '#E76F51',
+    light: '#C85A3D',
   },
   delete: {
-    dark: '#E08896',
-    light: '#B85A68',
+    dark: '#94A3B8',
+    light: '#64748B',
   },
 };
 
-// Accent colors — aligned with Do (primary) and Delegate (secondary)
+// Accent colors — primary mirrors DO teal, secondary mirrors DELEGATE indigo.
+// Reference quadrantColors directly so the two never drift apart.
 const accentColors = {
-  primary: {
-    dark: '#48C99A',
-    light: '#2D9172',
-  },
-  secondary: {
-    dark: '#8898EE',
-    light: '#5268C4',
-  },
+  primary: quadrantColors.do,
+  secondary: quadrantColors.delegate,
 };
 
 // Create theme based on mode
@@ -72,15 +71,24 @@ export function createAppTheme(mode) {
       mode,
       primary: {
         main: isDark ? accentColors.primary.dark : accentColors.primary.light,
-        light: isDark ? '#6DD4AE' : '#4DB896',
-        dark: isDark ? '#3AA882' : '#237A60',
+        light: isDark ? '#3DBCAD' : '#2A9D8F',
+        dark: isDark ? '#1E7D70' : '#176358',
         contrastText: '#FFFFFF',
       },
       secondary: {
         main: isDark ? accentColors.secondary.dark : accentColors.secondary.light,
-        light: isDark ? '#A4B0F2' : '#6B7FD4',
-        dark: isDark ? '#6E7FD6' : '#4254A8',
+        light: isDark ? '#9A8EF8' : '#7B6CF6',
+        dark: isDark ? '#5E52D4' : '#4740B0',
         contrastText: '#FFFFFF',
+      },
+      warning: {
+        // MUI standard warning palette — meets WCAG AA in both modes.
+        // dark: orange[400] (#FFA726) — amber[400] (#FFCA28) is too light on dark surfaces.
+        // light: deepOrange[900] (#E65100) — sufficient contrast on white/light backgrounds.
+        main: isDark ? '#FFA726' : '#E65100',
+        light: isDark ? '#FFB74D' : '#FF6D00',
+        dark: isDark ? '#F57C00' : '#BF360C',
+        contrastText: isDark ? '#000000' : '#FFFFFF',
       },
       background: {
         default: colors.background.default,
