@@ -168,6 +168,8 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
           bgcolor: 'background.paper',
           border: '1px solid',
           borderColor: 'divider',
+          borderLeftWidth: '3px',
+          borderLeftColor: alpha(quadrantColor || '#6B8F71', 0.7),
           cursor: 'pointer',
           transition: 'background-color 0.35s ease, border-color 0.35s ease, opacity 0.35s ease, transform 0.35s ease, box-shadow 0.35s ease, padding 0.2s ease',
           opacity: showAsCompleted ? 0.55 : 1,

@@ -36,6 +36,13 @@ function Quadrant({ config, onAddTask, onEditTask, guardrailWarning }) {
 
   const IconComponent = iconMap[config.icon] || PlayArrowIcon;
 
+  const headerTextColor = theme.palette.getContrastText(config.color);
+  const headerBtnSx = {
+    color: headerTextColor,
+    bgcolor: alpha('#FFFFFF', 0.2),
+    '&:hover': { bgcolor: alpha('#FFFFFF', 0.35) },
+  };
+
   return (
     <Box
       ref={setNodeRef}
@@ -43,13 +50,15 @@ function Quadrant({ config, onAddTask, onEditTask, guardrailWarning }) {
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        bgcolor: alpha(config.color, 0.08),
+        bgcolor: 'background.paper',
+        borderLeft: '5px solid',
         borderRight: '1px solid',
         borderBottom: '1px solid',
         borderColor: 'divider',
-        transition: 'background-color 0.2s ease',
+        borderLeftColor: config.color,
+        transition: 'box-shadow 0.2s ease',
         ...(isOver && {
-          bgcolor: alpha(config.color, 0.2),
+          boxShadow: `inset 0 0 0 2px ${config.color}`,
         }),
       }}
     >
@@ -62,7 +71,7 @@ function Quadrant({ config, onAddTask, onEditTask, guardrailWarning }) {
           p: 2,
           borderBottom: '1px solid',
           borderColor: 'divider',
-          bgcolor: alpha(config.color, 0.15),
+          bgcolor: config.color,
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -72,19 +81,19 @@ function Quadrant({ config, onAddTask, onEditTask, guardrailWarning }) {
               width: 36,
               height: 36,
               borderRadius: 1.5,
-              bgcolor: alpha(config.color, 0.4),
+              bgcolor: alpha('#FFFFFF', 0.2),
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <IconComponent sx={{ fontSize: 20, color: 'text.primary' }} />
+            <IconComponent sx={{ fontSize: 20, color: headerTextColor }} />
           </Box>
           <Box>
-            <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 600, lineHeight: 1.2 }}>
+            <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 600, lineHeight: 1.2, color: headerTextColor }}>
               {config.title}
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+            <Typography variant="caption" sx={{ fontSize: '0.7rem', color: alpha(headerTextColor, 0.8) }}>
               {config.subtitle}
             </Typography>
           </Box>
@@ -101,7 +110,7 @@ function Quadrant({ config, onAddTask, onEditTask, guardrailWarning }) {
                     ? 'Hide completed tasks'
                     : `Show completed tasks (${completedCount})`
                 }
-                sx={{ color: 'text.secondary' }}
+                sx={headerBtnSx}
               >
                 <Badge badgeContent={completedCount} color="primary" max={99}>
                   {showCompleted[config.id] ? (
@@ -118,12 +127,7 @@ function Quadrant({ config, onAddTask, onEditTask, guardrailWarning }) {
               size="small"
               onClick={onAddTask}
               aria-label="Add task"
-              sx={{
-                bgcolor: alpha(config.color, 0.3),
-                '&:hover': {
-                  bgcolor: alpha(config.color, 0.5),
-                },
-              }}
+              sx={headerBtnSx}
             >
               <AddIcon fontSize="small" />
             </IconButton>

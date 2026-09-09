@@ -8,6 +8,7 @@ import {
   Chip,
   Collapse,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import EventIcon from '@mui/icons-material/Event';
 import CallSplitIcon from '@mui/icons-material/CallSplit';
@@ -58,11 +59,14 @@ function BacklogCard({ task, horizonColor, onEdit, onSchedule, onSplit }) {
         bgcolor: 'background.paper',
         border: '1px solid',
         borderColor: 'divider',
+        borderLeftWidth: '3px',
+        borderLeftColor: alpha(horizonColor, 0.7),
         cursor: 'pointer',
         transition: 'all 0.15s ease',
         '&:hover': {
           bgcolor: 'action.hover',
           borderColor: alpha(horizonColor, 0.4),
+          borderLeftColor: alpha(horizonColor, 0.7),
           '& .backlog-actions': { opacity: 1 },
         },
       }}
@@ -193,6 +197,13 @@ function groupByList(tasks) {
 function HorizonColumn({ horizonId, tasks, onAddTask, onEditTask, onSchedule, onSplit }) {
   const config = TIME_HORIZON_CONFIG[horizonId];
   const groups = groupByList(tasks);
+  const theme = useTheme();
+  const headerTextColor = theme.palette.getContrastText(config.color);
+  const headerBtnSx = {
+    color: headerTextColor,
+    bgcolor: alpha('#FFFFFF', 0.2),
+    '&:hover': { bgcolor: alpha('#FFFFFF', 0.35) },
+  };
 
   return (
     <Box
@@ -201,9 +212,11 @@ function HorizonColumn({ horizonId, tasks, onAddTask, onEditTask, onSchedule, on
         flexDirection: 'column',
         height: '100%',
         minWidth: 0,
-        bgcolor: alpha(config.color, 0.06),
+        bgcolor: 'background.paper',
+        borderLeft: '5px solid',
         borderRight: '1px solid',
         borderColor: 'divider',
+        borderLeftColor: config.color,
       }}
     >
       <Box
@@ -211,17 +224,17 @@ function HorizonColumn({ horizonId, tasks, onAddTask, onEditTask, onSchedule, on
           p: 2,
           borderBottom: '1px solid',
           borderColor: 'divider',
-          bgcolor: alpha(config.color, 0.12),
+          bgcolor: config.color,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
         }}
       >
         <Box>
-          <Typography variant="h6" sx={{ fontSize: '0.95rem', fontWeight: 600 }}>
+          <Typography variant="h6" sx={{ fontSize: '0.95rem', fontWeight: 600, color: headerTextColor }}>
             {config.title}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{ color: alpha(headerTextColor, 0.8) }}>
             {config.subtitle}
           </Typography>
         </Box>
@@ -230,7 +243,7 @@ function HorizonColumn({ horizonId, tasks, onAddTask, onEditTask, onSchedule, on
             size="small"
             onClick={onAddTask}
             aria-label={`Add ${config.title} task`}
-            sx={{ bgcolor: alpha(config.color, 0.2), '&:hover': { bgcolor: alpha(config.color, 0.35) } }}
+            sx={headerBtnSx}
           >
             <AddIcon fontSize="small" />
           </IconButton>
