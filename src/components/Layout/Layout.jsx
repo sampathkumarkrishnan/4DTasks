@@ -22,6 +22,7 @@ import Backlog from '../Backlog/Backlog';
 import ScheduleDialog from '../TaskDialog/ScheduleDialog';
 import SplitDialog from '../TaskDialog/SplitDialog';
 import { getQuadrantConfig } from '../../theme/theme';
+import { resolveTimeHorizon } from '../../utils/resolveTimeHorizon';
 
 // Resize handle component
 function ResizeHandle({ direction = 'horizontal' }) {
@@ -257,6 +258,7 @@ function Layout() {
             notes: task.displayNotes || task.notes || '',
             due: task.due || null,
             listTitle: task.listTitle || null,
+            timeHorizon: resolveTimeHorizon(task).id,
           };
           const sourceDelegationId = getDelegationIdFromNotes(task.notes);
           await createDelegation({
@@ -525,7 +527,7 @@ function Layout() {
 
         <DragOverlay>
           {activeTask ? (
-            <TaskCard task={activeTask} isDragging quadrantColor={quadrantConfig[activeTask.metadata?.quadrant || 'do'].color} />
+            <TaskCard task={activeTask} isDragging />
           ) : null}
         </DragOverlay>
       </DndContext>

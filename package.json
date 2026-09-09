@@ -11,7 +11,9 @@
     "server": "cd server && node index.js",
     "server:dev": "cd server && node --watch index.js",
     "docker:up": "docker compose up --build",
-    "docker:down": "docker compose down"
+    "docker:down": "docker compose down",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "4d-matrix",
@@ -37,6 +39,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.2",
-    "vite": "^7.3.0"
+    "vite": "^7.3.0",
+    "vitest": "^5.0.0"
   }
 }

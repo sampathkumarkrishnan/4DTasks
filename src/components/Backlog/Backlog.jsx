@@ -18,15 +18,17 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import LabelIcon from '@mui/icons-material/Label';
 import { TIME_HORIZON_CONFIG, TIME_HORIZON_ORDER } from '../../constants/timeHorizon';
+import { resolveTimeHorizon } from '../../utils/resolveTimeHorizon';
 import { isScheduledFuture } from '../../utils/taskFilters';
 import { useTasks } from '../../context/TaskContext';
 import SubtaskAccordion from '../SubtaskAccordion/SubtaskAccordion';
 import dayjs from 'dayjs';
 
-function BacklogCard({ task, horizonColor, onEdit, onSchedule, onSplit }) {
+function BacklogCard({ task, onEdit, onSchedule, onSplit }) {
   const { deleteTask } = useTasks();
+  const horizon = resolveTimeHorizon(task);
   const [expanded, setExpanded] = useState(false);
-  const isStrategic = task.metadata?.timeHorizon === 'strategic';
+  const isStrategic = horizon.id === 'strategic';
   const scheduled = isScheduledFuture(task);
 
   // Subtask progress badge
@@ -60,13 +62,13 @@ function BacklogCard({ task, horizonColor, onEdit, onSchedule, onSplit }) {
         border: '1px solid',
         borderColor: 'divider',
         borderLeftWidth: '3px',
-        borderLeftColor: alpha(horizonColor, 0.7),
+        borderLeftColor: alpha(horizon.color, 0.7),
         cursor: 'pointer',
         transition: 'all 0.15s ease',
         '&:hover': {
           bgcolor: 'action.hover',
-          borderColor: alpha(horizonColor, 0.4),
-          borderLeftColor: alpha(horizonColor, 0.7),
+          borderColor: alpha(horizon.color, 0.4),
+          borderLeftColor: alpha(horizon.color, 0.7),
           '& .backlog-actions': { opacity: 1 },
         },
       }}
@@ -97,7 +99,7 @@ function BacklogCard({ task, horizonColor, onEdit, onSchedule, onSplit }) {
                 height: 16,
                 fontSize: '0.65rem',
                 flexShrink: 0,
-                bgcolor: subtaskOverdue ? alpha('#F44336', 0.15) : alpha(horizonColor, 0.15),
+                bgcolor: subtaskOverdue ? alpha('#F44336', 0.15) : alpha(horizon.color, 0.15),
                 color: subtaskOverdue ? 'error.main' : 'text.secondary',
                 '& .MuiChip-label': { px: 0.75 },
                 cursor: 'default',
@@ -132,7 +134,7 @@ function BacklogCard({ task, horizonColor, onEdit, onSchedule, onSplit }) {
                 icon={<EventIcon sx={{ fontSize: 14 }} />}
                 label={dayjs(task.due).format('MMM D')}
                 size="small"
-                sx={{ height: 22, fontSize: '0.7rem', bgcolor: alpha(horizonColor, 0.15) }}
+                sx={{ height: 22, fontSize: '0.7rem', bgcolor: alpha(horizon.color, 0.15) }}
               />
             )}
           </Box>
@@ -270,7 +272,6 @@ function HorizonColumn({ horizonId, tasks, onAddTask, onEditTask, onSchedule, on
                   <BacklogCard
                     key={task.id}
                     task={task}
-                    horizonColor={config.color}
                     onEdit={() => onEditTask(task)}
                     onSchedule={() => onSchedule(task)}
                     onSplit={() => onSplit(task)}

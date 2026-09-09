@@ -22,6 +22,7 @@ import { useTasks } from '../../context/TaskContext';
 import { delegationsApi } from '../../services/delegationsApi';
 import { useThemeMode } from '../../context/ThemeContext';
 import { getQuadrantConfig } from '../../theme/theme';
+import { resolveTimeHorizonColor } from '../../utils/resolveTimeHorizon';
 
 export default function DelegatedToMe() {
   const { accessToken } = useAuth();
@@ -122,12 +123,13 @@ export default function DelegatedToMe() {
             const due = payload.due ? new Date(payload.due).toLocaleDateString() : null;
             const secondary = [d.fromUserEmail, due].filter(Boolean).join(' · ');
             const busy = actingId === d.id;
+            const horizonColor = resolveTimeHorizonColor(payload);
             return (
               <ListItem
                 key={d.id}
                 sx={{
                   borderLeft: 3,
-                  borderColor: config.color,
+                  borderColor: alpha(horizonColor, 0.7),
                   bgcolor: 'background.paper',
                   borderRadius: 1,
                   mb: 0.5,

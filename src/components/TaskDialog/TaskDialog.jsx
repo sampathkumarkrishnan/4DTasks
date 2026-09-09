@@ -165,6 +165,7 @@ function TaskDialog({ open, onClose, quadrant, task, captureMode = 'matrix', tim
                 notes: taskData.notes || '',
                 due: taskData.due || null,
                 listTitle: created.listTitle || null,
+                timeHorizon: taskData.timeHorizon || DEFAULT_TIME_HORIZON,
               },
               toEmail: taskData.delegatedTo.trim(),
               sourceListId: created.listId,

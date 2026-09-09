@@ -27,13 +27,15 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { TIME_HORIZON_CONFIG } from '../../constants/timeHorizon';
+import { resolveTimeHorizon } from '../../utils/resolveTimeHorizon';
 import { useTasks } from '../../context/TaskContext';
 import SubtaskAccordion from '../SubtaskAccordion/SubtaskAccordion';
 
 dayjs.extend(relativeTime);
 
 function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
+  const horizon = resolveTimeHorizon(task);
+  const accentColor = quadrantColor || '#6B8F71';
   const { toggleComplete, deleteTask, sentDelegations } = useTasks();
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [isCompleting, setIsCompleting] = useState(false);
@@ -144,7 +146,7 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
         sx={{
           p: 1.5,
           borderRadius: 1.5,
-          bgcolor: alpha(quadrantColor || '#6B8F71', 0.3),
+          bgcolor: alpha(horizon.color, 0.3),
           border: '2px dashed',
           borderColor: 'divider',
           opacity: 0.8,
@@ -161,33 +163,36 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
 
   return (
     <Box ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <Box
-        sx={{
-          p: expanded ? 1.5 : 1,
-          borderRadius: 1.5,
-          bgcolor: 'background.paper',
-          border: '1px solid',
-          borderColor: 'divider',
-          borderLeftWidth: '3px',
-          borderLeftColor: alpha(quadrantColor || '#6B8F71', 0.7),
-          cursor: 'pointer',
-          transition: 'background-color 0.35s ease, border-color 0.35s ease, opacity 0.35s ease, transform 0.35s ease, box-shadow 0.35s ease, padding 0.2s ease',
-          opacity: showAsCompleted ? 0.55 : 1,
-          transform: isCompleting ? 'scale(0.96)' : 'scale(1)',
-          ...(isCompleting && {
-            bgcolor: alpha(quadrantColor || '#2D9172', 0.22),
-            borderColor: alpha(quadrantColor || '#2D9172', 0.65),
-            boxShadow: `0 0 0 3px ${alpha(quadrantColor || '#2D9172', 0.3)}`,
-          }),
-          '&:hover': {
-            bgcolor: isCompleting ? alpha(quadrantColor || '#2D9172', 0.22) : 'action.hover',
-            borderColor: alpha(quadrantColor || '#6B8F71', 0.4),
-            '& .task-actions': {
-              opacity: 1,
+      <Tooltip title={horizon.tooltipLabel} placement="left">
+        <Box
+          sx={{
+            p: expanded ? 1.5 : 1,
+            borderRadius: 1.5,
+            bgcolor: 'background.paper',
+            border: '1px solid',
+            borderColor: 'divider',
+            borderLeftWidth: '3px',
+            borderLeftColor: alpha(horizon.color, 0.7),
+            cursor: 'pointer',
+            transition: 'background-color 0.35s ease, border-color 0.35s ease, opacity 0.35s ease, transform 0.35s ease, box-shadow 0.35s ease, padding 0.2s ease',
+            opacity: showAsCompleted ? 0.55 : 1,
+            transform: isCompleting ? 'scale(0.96)' : 'scale(1)',
+            ...(isCompleting && {
+              bgcolor: alpha(accentColor, 0.22),
+              borderColor: alpha(accentColor, 0.65),
+              borderLeftColor: alpha(horizon.color, 0.7),
+              boxShadow: `0 0 0 3px ${alpha(accentColor, 0.3)}`,
+            }),
+            '&:hover': {
+              bgcolor: isCompleting ? alpha(accentColor, 0.22) : 'action.hover',
+              borderColor: alpha(accentColor, 0.4),
+              borderLeftColor: alpha(horizon.color, 0.7),
+              '& .task-actions': {
+                opacity: 1,
+              },
             },
-          },
-        }}
-      >
+          }}
+        >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           <Checkbox
             checked={showAsCompleted}
@@ -225,7 +230,7 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
               minWidth: 0,
               fontWeight: 500,
               textDecoration: showAsCompleted ? 'line-through' : 'none',
-              textDecorationColor: showAsCompleted ? alpha(quadrantColor || '#2D9172', 0.5) : 'transparent',
+              textDecorationColor: showAsCompleted ? alpha(accentColor, 0.5) : 'transparent',
               color: showAsCompleted ? 'text.disabled' : 'text.primary',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -250,7 +255,7 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
                   height: 16,
                   fontSize: '0.65rem',
                   flexShrink: 0,
-                  bgcolor: subtaskOverdue ? alpha('#F44336', 0.15) : alpha(quadrantColor || '#6B8F71', 0.15),
+                  bgcolor: subtaskOverdue ? alpha('#F44336', 0.15) : alpha(accentColor, 0.15),
                   color: subtaskOverdue ? 'error.main' : 'text.secondary',
                   '& .MuiChip-label': { px: 0.75 },
                   cursor: 'default',
@@ -332,20 +337,6 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
                     fontSize: '0.7rem',
                     bgcolor: alpha('#d32f2f', 0.2),
                     color: '#c62828',
-                  }}
-                />
-              </Tooltip>
-            )}
-
-            {task.metadata?.timeHorizon && (
-              <Tooltip title={`Horizon: ${TIME_HORIZON_CONFIG[task.metadata.timeHorizon]?.title || task.metadata.timeHorizon}`}>
-                <Chip
-                  label={TIME_HORIZON_CONFIG[task.metadata.timeHorizon]?.title || task.metadata.timeHorizon}
-                  size="small"
-                  sx={{
-                    height: 22,
-                    fontSize: '0.7rem',
-                    bgcolor: alpha(TIME_HORIZON_CONFIG[task.metadata.timeHorizon]?.color || '#888', 0.2),
                   }}
                 />
               </Tooltip>
@@ -437,7 +428,8 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
         </MenuItem>
       </Menu>
 
-      </Box>
+        </Box>
+      </Tooltip>
 
       {/* Cascade failure toast — shown when some subtask PATCHes fail (best-effort, ADR 0004) */}
       <Snackbar
