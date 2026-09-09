@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Typography, IconButton, alpha, Tooltip, Badge } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
@@ -20,6 +21,7 @@ const iconMap = {
 };
 
 function Quadrant({ config, onAddTask, onEditTask, guardrailWarning }) {
+  const theme = useTheme();
   const { getTasksByQuadrant, toggleShowCompleted, showCompleted, tasks } = useTasks();
   
   const { setNodeRef, isOver } = useDroppable({
@@ -65,6 +67,7 @@ function Quadrant({ config, onAddTask, onEditTask, guardrailWarning }) {
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <Box
+            aria-hidden="true"
             sx={{
               width: 36,
               height: 36,
@@ -93,6 +96,11 @@ function Quadrant({ config, onAddTask, onEditTask, guardrailWarning }) {
               <IconButton
                 size="small"
                 onClick={() => toggleShowCompleted(config.id)}
+                aria-label={
+                  showCompleted[config.id]
+                    ? 'Hide completed tasks'
+                    : `Show completed tasks (${completedCount})`
+                }
                 sx={{ color: 'text.secondary' }}
               >
                 <Badge badgeContent={completedCount} color="primary" max={99}>
@@ -109,6 +117,7 @@ function Quadrant({ config, onAddTask, onEditTask, guardrailWarning }) {
             <IconButton
               size="small"
               onClick={onAddTask}
+              aria-label="Add task"
               sx={{
                 bgcolor: alpha(config.color, 0.3),
                 '&:hover': {
@@ -123,8 +132,16 @@ function Quadrant({ config, onAddTask, onEditTask, guardrailWarning }) {
       </Box>
 
       {guardrailWarning && (
-        <Box sx={{ px: 2, py: 0.75, bgcolor: alpha('#F9A825', 0.12), borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Typography variant="caption" sx={{ color: '#F57F17', fontWeight: 500 }}>
+        <Box
+          sx={{
+            px: 2,
+            py: 0.75,
+            bgcolor: alpha(theme.palette.warning.main, 0.12),
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <Typography variant="caption" sx={{ color: theme.palette.warning.main, fontWeight: 500 }}>
             {guardrailWarning}
           </Typography>
         </Box>

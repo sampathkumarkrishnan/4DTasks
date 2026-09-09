@@ -400,6 +400,7 @@ function TaskCard({ task, onEdit, quadrantColor, isDragging = false }) {
                 onPointerDown={stopDragPropagation}
                 onMouseDown={stopDragPropagation}
                 onTouchStart={stopDragPropagation}
+                aria-label="Task actions"
                 sx={{ p: 0.5 }}
               >
                 <MoreVertIcon fontSize="small" />

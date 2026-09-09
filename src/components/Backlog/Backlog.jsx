@@ -149,24 +149,24 @@ function BacklogCard({ task, horizonColor, onEdit, onSchedule, onSplit }) {
             onClick={(e) => e.stopPropagation()}
           >
             <Tooltip title="Schedule">
-              <IconButton size="small" onClick={onSchedule}>
+              <IconButton size="small" onClick={onSchedule} aria-label="Schedule">
                 <EventIcon fontSize="small" />
               </IconButton>
             </Tooltip>
             {isStrategic && (
               <Tooltip title="Split into tactical tasks">
-                <IconButton size="small" onClick={onSplit}>
+                <IconButton size="small" onClick={onSplit} aria-label="Split into tactical tasks">
                   <CallSplitIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
             )}
             <Tooltip title="Edit">
-              <IconButton size="small" onClick={onEdit}>
+              <IconButton size="small" onClick={onEdit} aria-label="Edit">
                 <EditIcon fontSize="small" />
               </IconButton>
             </Tooltip>
             <Tooltip title="Delete">
-              <IconButton size="small" onClick={handleDelete} sx={{ color: 'error.main' }}>
+              <IconButton size="small" onClick={handleDelete} aria-label="Delete" sx={{ color: 'error.main' }}>
                 <DeleteOutlineIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -229,6 +229,7 @@ function HorizonColumn({ horizonId, tasks, onAddTask, onEditTask, onSchedule, on
           <IconButton
             size="small"
             onClick={onAddTask}
+            aria-label={`Add ${config.title} task`}
             sx={{ bgcolor: alpha(config.color, 0.2), '&:hover': { bgcolor: alpha(config.color, 0.35) } }}
           >
             <AddIcon fontSize="small" />
